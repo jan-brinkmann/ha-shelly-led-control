@@ -1,0 +1,19 @@
+[project]
+name = "shelly-led-control"
+version = "1.0.0"
+description = "Home Assistant light entity for the Shelly Plus Plug S status LED"
+requires-python = ">=3.13"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["ASYNC", "B", "E", "F", "I", "UP"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["custom_components.shelly_led_control"]

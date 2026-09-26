@@ -1,0 +1,59 @@
+{
+  "config": {
+    "abort": {
+      "already_configured": "This Shelly device is already configured.",
+      "reauth_successful": "Re-authentication was successful."
+    },
+    "error": {
+      "cannot_connect": "Unable to connect to the Shelly device.",
+      "invalid_auth": "The Shelly username or password is invalid.",
+      "unknown": "An unexpected error occurred.",
+      "unsupported_device": "This Shelly device does not provide PLUGS_UI LED control."
+    },
+    "step": {
+      "reauth_confirm": {
+        "data": {
+          "password": "Password",
+          "username": "Username"
+        },
+        "description": "Enter the current Shelly credentials for {host}.",
+        "title": "Re-authenticate Shelly LED Control"
+      },
+      "user": {
+        "data": {
+          "host": "Host",
+          "password": "Password",
+          "username": "Username"
+        },
+        "data_description": {
+          "host": "Hostname or IP address of the Shelly device.",
+          "password": "Leave empty when Shelly authentication is disabled.",
+          "username": "Shelly uses admin by default."
+        },
+        "description": "Connect directly to a Shelly Plus Plug S or another compatible Shelly Wall Plug.",
+        "title": "Add Shelly LED Control"
+      }
+    }
+  },
+  "entity": {
+    "light": {
+      "status_led": {
+        "name": "Status LED"
+      }
+    },
+    "switch": {
+      "night_mode": {
+        "name": "Night mode"
+      }
+    },
+    "time": {
+      "night_mode_end": {
+        "name": "Night mode end"
+      },
+      "night_mode_start": {
+        "name": "Night mode start"
+      }
+    }
+  },
+  "title": "Shelly LED Control"
+}

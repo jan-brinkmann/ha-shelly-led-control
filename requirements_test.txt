@@ -1,0 +1,6 @@
+homeassistant
+aioshelly==13.33.0
+pytest
+pytest-asyncio
+pytest-homeassistant-custom-component
+ruff
