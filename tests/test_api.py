@@ -61,6 +61,19 @@ async def test_enabling_led_uses_last_active_mode() -> None:
 
 
 @pytest.mark.asyncio
+async def test_getting_device_time_uses_the_shelly_local_clock() -> None:
+    """Read the Shelly-local clock with seconds for exact boundary refreshes."""
+    device = MagicMock()
+    device.connected = True
+    device.call_rpc = AsyncMock(return_value={"time": "22:15", "unixtime": 7})
+    client = ShellyLedClient(MagicMock(), "192.0.2.10", None, None)
+    client._device = device
+
+    assert await client.async_get_device_time() == time(22, 15, 7)
+    device.call_rpc.assert_awaited_once_with("Sys.GetStatus", timeout=RPC_TIMEOUT)
+
+
+@pytest.mark.asyncio
 async def test_enabling_night_mode_preserves_brightness_and_time_window() -> None:
     """Update only the night-mode enable flag in the Shelly configuration."""
     led_config = {

@@ -41,6 +41,21 @@ class ShellyNightMode:
     enabled: bool
     start: time
     end: time
+    brightness: float | None
+
+    def hides_led_at(self, value: time) -> bool:
+        """Return whether night mode suppresses the LED at a local time.
+
+        A night-mode brightness of zero turns off the physical LED while
+        preserving its configured indication mode.
+        """
+        if not self.enabled or self.brightness != 0:
+            return False
+        if self.start == self.end:
+            return True
+        if self.start < self.end:
+            return self.start <= value < self.end
+        return value >= self.start or value < self.end
 
 
 def led_mode_from_config(config: dict[str, Any]) -> str:
@@ -69,17 +84,25 @@ def night_mode_from_config(config: dict[str, Any]) -> ShellyNightMode:
 
     enabled = night_mode.get("enable")
     active_between = night_mode.get("active_between")
+    brightness = night_mode.get("brightness")
     if not isinstance(enabled, bool) or not (
         isinstance(active_between, list)
         and len(active_between) == 2
         and all(isinstance(value, str) for value in active_between)
     ):
         raise ShellyUnsupportedDeviceError("PLUGS_UI night mode has invalid settings")
+    if brightness is not None and (
+        isinstance(brightness, bool)
+        or not isinstance(brightness, int | float)
+        or not 0 <= brightness <= 100
+    ):
+        raise ShellyUnsupportedDeviceError("PLUGS_UI night mode has invalid brightness")
 
     return ShellyNightMode(
         enabled=enabled,
         start=_time_from_rpc(active_between[0]),
         end=_time_from_rpc(active_between[1]),
+        brightness=brightness,
     )
 
 
@@ -222,6 +245,30 @@ class ShellyLedClient:
         if mode != LED_MODE_OFF:
             self._last_enabled_mode = mode
         return config
+
+    async def async_get_device_time(self) -> time | None:
+        """Return the current local time reported by the Shelly.
+
+        The optional ``unixtime`` status value supplies the seconds component,
+        allowing callers to schedule a refresh at a night-mode boundary without
+        waiting for the remainder of the current minute. ``None`` means the
+        device has not synchronized its clock yet, so a time-based effective
+        LED state cannot be determined safely.
+        """
+        device = self._require_device()
+        status = await device.call_rpc("Sys.GetStatus", timeout=RPC_TIMEOUT)
+        if not isinstance(status, dict):
+            raise ShellyUnsupportedDeviceError("Sys status is not an object")
+        value = status.get("time")
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ShellyUnsupportedDeviceError("Sys status has invalid local time")
+        device_time = _time_from_rpc(value)
+        unix_time = status.get("unixtime")
+        if isinstance(unix_time, int | float) and not isinstance(unix_time, bool):
+            return device_time.replace(second=int(unix_time) % 60)
+        return device_time
 
     async def async_set_led_enabled(self, enabled: bool) -> None:
         """Enable or disable LED indication while retaining related settings.

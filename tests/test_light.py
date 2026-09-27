@@ -14,7 +14,9 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.shelly_led_control.api import night_mode_from_config
 from custom_components.shelly_led_control.const import DOMAIN
+from custom_components.shelly_led_control.coordinator import ShellyLedState
 
 TEST_MAC = "aa:bb:cc:dd:ee:ff"
 
@@ -141,6 +143,56 @@ async def test_off_mode_and_turn_on_call(hass, mock_client) -> None:
     )
 
     mock_client.async_set_led_enabled.assert_awaited_once_with(True)
+
+
+@pytest.mark.asyncio
+async def test_night_mode_turns_entity_off_inside_zero_brightness_window(
+    hass, mock_client
+) -> None:
+    """Expose the physical LED as off while zero-brightness night mode is active."""
+    mock_client.async_get_led_config.side_effect = None
+    mock_client.async_get_led_config.return_value = {
+        "leds": {
+            "mode": "power",
+            "night_mode": {
+                "enable": True,
+                "brightness": 0,
+                "active_between": ["20:00", "08:00"],
+            },
+        }
+    }
+    mock_client.async_get_device_time.return_value = time(20, 0)
+
+    entry = await _setup_entry(hass, mock_client)
+    registry_entry = _registry_entry(hass, entry)
+
+    assert hass.states.get(registry_entry.entity_id).state == "off"
+
+
+def test_zero_brightness_night_mode_turns_light_off_inside_window() -> None:
+    """Report the LED as off while a zero-brightness night mode is active."""
+    night_mode = night_mode_from_config(
+        {
+            "leds": {
+                "night_mode": {
+                    "enable": True,
+                    "brightness": 0,
+                    "active_between": ["22:00", "06:00"],
+                }
+            }
+        }
+    )
+    active_state = ShellyLedState(
+        mode="power",
+        night_mode=night_mode,
+        device_time=time(22, 0),
+    )
+    inactive_state = ShellyLedState(
+        mode="power", night_mode=night_mode, device_time=time(6, 0)
+    )
+
+    assert not active_state.is_on
+    assert inactive_state.is_on
 
 
 @pytest.mark.asyncio

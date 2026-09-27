@@ -20,7 +20,7 @@
 
 - Eine `light`-Entität namens **Status-LED** für jedes eingerichtete Shelly.
 - `light.turn_on` aktiviert die LED-Anzeige und `light.turn_off` deaktiviert sie.
-- `mode: off` wird als aus angezeigt; jeder andere unterstützte LED-Modus wird als an angezeigt.
+- `mode: off` sowie ein aktiver Nachtmodus mit Helligkeit null werden als aus angezeigt; der Zustand nutzt die lokale Uhrzeit des Shellys und aktualisiert sich an den Grenzen des Zeitfensters.
 - Ein Konfigurationsschalter **Nachtmodus** sowie die Zeit-Entitäten **Beginn Nachtmodus** und **Ende Nachtmodus**.
 - Das Zeitfenster des Nachtmodus wird als lokale Shelly-Start- und Endzeit im Format `HH:MM` geschrieben, ohne die konfigurierte Helligkeit zu verändern.
 - Nutzt lokale asynchrone Shelly-RPC, Digest-Authentifizierung bei aktivierter Anmeldung, Push-Ereignisse und eine Aktualisierung alle fünf Minuten als Rückfallebene.
@@ -58,7 +58,7 @@ Verwende den Schalter **Nachtmodus** im Konfigurationsbereich des Geräts, um de
 
 ## Aktuelle Einschränkungen
 
-Version 1.0.0 unterstützt LED an/aus sowie das Aktivieren, Deaktivieren und Planen des Nachtmodus. RGB-Farbe, Helligkeit, getrennte Auswahl von LED-Modi, leistungsabhängige Anzeige und automatische Erkennung sind nicht implementiert. `PLUGS_UI` hat keinen eigenen Live-Status; die Entität repräsentiert daher den konfigurierten Modus und keine direkte Messung des tatsächlich ausgestrahlten Lichts.
+Version 1.0.0 unterstützt LED an/aus sowie das Aktivieren, Deaktivieren und Planen des Nachtmodus. RGB-Farbe, Helligkeit, getrennte Auswahl von LED-Modi, leistungsabhängige Anzeige und automatische Erkennung sind nicht implementiert. `PLUGS_UI` hat keinen eigenen Live-Status; die Entität leitet den wirksamen LED-Zustand daher aus dem konfigurierten Modus und dem Zeitplan eines Nachtmodus mit Helligkeit null ab, statt das ausgestrahlte Licht direkt zu messen.
 
 ## Kompatibilität
 
