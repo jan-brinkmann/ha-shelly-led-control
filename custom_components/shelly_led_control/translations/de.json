@@ -44,6 +44,12 @@
     "light": {
       "status_led": {
         "name": "Status-LED"
+      },
+      "switch_off_color": {
+        "name": "LED-Farbe bei Relais aus"
+      },
+      "switch_on_color": {
+        "name": "LED-Farbe bei Relais an"
       }
     },
     "number": {
@@ -52,6 +58,15 @@
       },
       "normal_brightness": {
         "name": "Helligkeit Normalbetrieb"
+      }
+    },
+    "select": {
+      "led_indication_mode": {
+        "name": "LED-Anzeigemodus",
+        "state": {
+          "power": "Leistungsaufnahme",
+          "switch": "Schaltzustand"
+        }
       }
     },
     "sensor": {

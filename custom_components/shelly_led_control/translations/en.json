@@ -44,6 +44,12 @@
     "light": {
       "status_led": {
         "name": "Status LED"
+      },
+      "switch_off_color": {
+        "name": "LED color when relay is off"
+      },
+      "switch_on_color": {
+        "name": "LED color when relay is on"
       }
     },
     "number": {
@@ -52,6 +58,15 @@
       },
       "normal_brightness": {
         "name": "Normal brightness"
+      }
+    },
+    "select": {
+      "led_indication_mode": {
+        "name": "LED indication mode",
+        "state": {
+          "power": "Power consumption",
+          "switch": "Switch state"
+        }
       }
     },
     "sensor": {

@@ -45,13 +45,14 @@ async def _setup_entry(hass, mock_client, unique_id: str = TEST_MAC) -> MockConf
 
 
 def _registry_entry(hass, entry: MockConfigEntry):
-    """Return the light registry entry created for a config entry."""
+    """Return the status LED registry entry, excluding relay-state presets."""
     return next(
         registry_entry
         for registry_entry in er.async_entries_for_config_entry(
             er.async_get(hass), entry.entry_id
         )
         if registry_entry.domain == LIGHT_DOMAIN
+        and registry_entry.translation_key == "status_led"
     )
 
 
