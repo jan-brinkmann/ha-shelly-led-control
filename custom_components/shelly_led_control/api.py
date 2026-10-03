@@ -43,19 +43,28 @@ class ShellyNightMode:
     end: time
     brightness: float | None
 
-    def hides_led_at(self, value: time) -> bool:
-        """Return whether night mode suppresses the LED at a local time.
+    def is_active_at(self, value: time) -> bool:
+        """Return whether enabled night mode applies at a Shelly-local time.
 
-        A night-mode brightness of zero turns off the physical LED while
-        preserving its configured indication mode.
+        The start is inclusive and the end exclusive, including windows across
+        midnight. Equal start and end times apply all day. Brightness does not
+        affect whether night mode is active.
         """
-        if not self.enabled or self.brightness != 0:
+        if not self.enabled:
             return False
         if self.start == self.end:
             return True
         if self.start < self.end:
             return self.start <= value < self.end
         return value >= self.start or value < self.end
+
+    def hides_led_at(self, value: time) -> bool:
+        """Return whether active night mode suppresses the LED at a local time.
+
+        A night-mode brightness of zero turns off the physical LED while
+        preserving its configured indication mode.
+        """
+        return self.brightness == 0 and self.is_active_at(value)
 
 
 def led_mode_from_config(config: dict[str, Any]) -> str:
@@ -68,6 +77,52 @@ def led_mode_from_config(config: dict[str, Any]) -> str:
     if not isinstance(leds, dict) or not isinstance(mode := leds.get("mode"), str):
         raise ShellyUnsupportedDeviceError("PLUGS_UI configuration has no LED mode")
     return mode
+
+
+def led_brightness_from_config(
+    config: dict[str, Any], switch_output: bool | None
+) -> float | None:
+    """Return normal LED brightness for the configured mode and relay output.
+
+    Brightness comes from ``colors.power`` or the selected ``colors.switch:0``
+    state. Missing, invalid or unsupported settings return None without
+    preventing other entities from updating. Night mode is applied separately.
+    """
+    leds = config.get("leds")
+    if not isinstance(leds, dict):
+        return None
+    if leds.get("mode") == LED_MODE_OFF:
+        return 0
+    colors = leds.get("colors")
+    if not isinstance(colors, dict):
+        return None
+    if leds.get("mode") == "power":
+        settings = colors.get("power")
+    elif leds.get("mode") == "switch" and isinstance(switch_output, bool):
+        switch_colors = colors.get("switch:0")
+        if not isinstance(switch_colors, dict):
+            return None
+        settings = switch_colors.get("on" if switch_output else "off")
+    else:
+        return None
+    if not isinstance(settings, dict):
+        return None
+    brightness = settings.get("brightness")
+    if (
+        isinstance(brightness, bool)
+        or not isinstance(brightness, int | float)
+        or not 0 <= brightness <= 100
+    ):
+        return None
+    return brightness
+
+
+def _switch_output_from_status(status: object) -> bool | None:
+    """Return a relay output flag, or None for missing or invalid status data."""
+    if not isinstance(status, dict):
+        return None
+    output = status.get("output")
+    return output if isinstance(output, bool) else None
 
 
 def night_mode_from_config(config: dict[str, Any]) -> ShellyNightMode:
@@ -149,6 +204,7 @@ class ShellyLedClient:
         self._device: RpcDevice | None = None
         self._device_info: ShellyDeviceInfo | None = None
         self._last_enabled_mode: str | None = None
+        self._last_switch_output: bool | None = None
         self._command_lock = asyncio.Lock()
         self._refresh_callback: Callable[[], Awaitable[None]] | None = None
         self._availability_callback: Callable[[], None] | None = None
@@ -214,6 +270,9 @@ class ShellyLedClient:
         )
         if mode != LED_MODE_OFF:
             self._last_enabled_mode = mode
+        self._last_switch_output = _switch_output_from_status(
+            device.status.get("switch:0")
+        )
         device.subscribe_updates(self._async_handle_rpc_update)
         return self._device_info
 
@@ -228,7 +287,7 @@ class ShellyLedClient:
         refresh_callback: Callable[[], Awaitable[None]],
         availability_callback: Callable[[], None],
     ) -> None:
-        """Register callbacks for Shelly configuration and connection changes."""
+        """Register callbacks for configuration, relay and connection changes."""
         self._refresh_callback = refresh_callback
         self._availability_callback = availability_callback
 
@@ -270,6 +329,19 @@ class ShellyLedClient:
             return device_time.replace(second=int(unix_time) % 60)
         return device_time
 
+    async def async_get_switch_output(self) -> bool | None:
+        """Read the relay output for switch-mode brightness, also on fallback polls.
+
+        Missing or invalid output is unknown. Connection and RPC failures
+        propagate to the coordinator so it can mark device data unavailable.
+        """
+        device = self._require_device()
+        status = await device.call_rpc(
+            "Switch.GetStatus", {"id": 0}, timeout=RPC_TIMEOUT
+        )
+        self._last_switch_output = _switch_output_from_status(status)
+        return self._last_switch_output
+
     async def async_set_led_enabled(self, enabled: bool) -> None:
         """Enable or disable LED indication while retaining related settings.
 
@@ -309,6 +381,23 @@ class ShellyLedClient:
         """Enable or disable night mode without changing its time window."""
         await self._async_update_night_mode(enabled=enabled)
 
+    async def async_set_night_mode_brightness(self, value: float) -> None:
+        """Set night-mode brightness while preserving all other settings.
+
+        Args:
+            value: The LED brightness in percent, from 0 to 100 inclusive.
+
+        Raises:
+            ValueError: If the value is not a number in the supported range.
+        """
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int | float)
+            or not 0 <= value <= 100
+        ):
+            raise ValueError("Shelly night mode brightness must be between 0 and 100")
+        await self._async_update_night_mode(brightness=value)
+
     async def async_set_night_mode_start(self, value: time) -> None:
         """Set the start of the night-mode time window.
 
@@ -329,6 +418,7 @@ class ShellyLedClient:
         self,
         *,
         enabled: bool | None = None,
+        brightness: float | None = None,
         start: time | None = None,
         end: time | None = None,
     ) -> None:
@@ -342,6 +432,8 @@ class ShellyLedClient:
             updated_night_mode["enable"] = (
                 night_mode.enabled if enabled is None else enabled
             )
+            if brightness is not None:
+                updated_night_mode["brightness"] = brightness
             updated_night_mode["active_between"] = [
                 _time_to_rpc(night_mode.start if start is None else start),
                 _time_to_rpc(night_mode.end if end is None else end),
@@ -366,18 +458,28 @@ class ShellyLedClient:
     def _async_handle_rpc_update(
         self, device: RpcDevice, update_type: RpcUpdateType
     ) -> None:
-        """Refresh configuration after relevant push events and connection changes."""
-        del device
+        """Refresh on configuration or relay changes and report disconnection.
+
+        Ignore status notifications that only change power readings, avoiding
+        repeated RPC refreshes while the relay output remains unchanged.
+        """
         if update_type is RpcUpdateType.DISCONNECTED:
             if self._availability_callback is not None:
                 self._availability_callback()
             return
 
-        if (
-            update_type is RpcUpdateType.EVENT
-            and self._refresh_callback is not None
-            and self._event_reports_plugs_ui_config_change()
-        ):
+        if update_type is RpcUpdateType.STATUS:
+            output = _switch_output_from_status(device.status.get("switch:0"))
+            if output == self._last_switch_output:
+                return
+            self._last_switch_output = output
+            refresh = True
+        else:
+            refresh = (
+                update_type is RpcUpdateType.EVENT
+                and self._event_reports_plugs_ui_config_change()
+            )
+        if refresh and self._refresh_callback is not None:
             self._hass.async_create_task(
                 self._refresh_callback(), "refresh Shelly LED configuration"
             )

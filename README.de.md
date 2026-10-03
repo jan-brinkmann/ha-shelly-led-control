@@ -21,7 +21,10 @@
 - Eine `light`-Entität namens **Status-LED** für jedes eingerichtete Shelly.
 - `light.turn_on` aktiviert die LED-Anzeige und `light.turn_off` deaktiviert sie.
 - `mode: off` sowie ein aktiver Nachtmodus mit Helligkeit null werden als aus angezeigt; der Zustand nutzt die lokale Uhrzeit des Shellys und aktualisiert sich an den Grenzen des Zeitfensters.
-- Ein Konfigurationsschalter **Nachtmodus** sowie die Zeit-Entitäten **Beginn Nachtmodus** und **Ende Nachtmodus**.
+- Ein Konfigurationsschalter **Nachtmodus nutzen** sowie die Zeit-Entitäten **Beginn Nachtmodus** und **Ende Nachtmodus**.
+- Ein schreibgeschützter Binärsensor **Nachtmodus aktiv**, der eingeschaltet ist, wenn der Nachtmodus genutzt wird und die lokale Shelly-Uhrzeit im konfigurierten Zeitfenster liegt, unabhängig von der Helligkeit.
+- Ein schreibgeschützter Sensor **Dimmwert Status-LED** für die aktuell wirksame Helligkeit von 0 bis 100 %, einschließlich Nachtmodus, mit Verlauf und Langzeitstatistik in Home Assistant.
+- Eine Zahl-Entität **Helligkeit Nachtmodus** im Konfigurationsbereich mit 0 bis 100 % in Schritten von 1 %.
 - Das Zeitfenster des Nachtmodus wird als lokale Shelly-Start- und Endzeit im Format `HH:MM` geschrieben, ohne die konfigurierte Helligkeit zu verändern.
 - Nutzt lokale asynchrone Shelly-RPC, Digest-Authentifizierung bei aktivierter Anmeldung, Push-Ereignisse und eine Aktualisierung alle fünf Minuten als Rückfallebene.
 - Unterstützt mehrere Geräte mit stabilen, MAC-adressbasierten eindeutigen IDs.
@@ -52,13 +55,19 @@ Verwende die **Status-LED** wie jedes Ein/Aus-Licht in Dashboards, Automatisieru
 - **Aus** schreibt `PLUGS_UI.leds.mode: off`.
 - **An** stellt den zuletzt beobachteten Nicht-Aus-Modus wieder her, solange diese Integration läuft. Nach einem Home-Assistant-Neustart bei deaktivierter LED wird `switch` als stabiler aktivierter Modus verwendet.
 
-Die vollständige aktuelle `PLUGS_UI`-Konfiguration wird vor jedem Schreiben gelesen. Nur `leds.mode` oder das angeforderte Feld von `leds.night_mode` ändert sich; konfigurierte Farben, Helligkeit und Steuerungen bleiben erhalten.
+Die vollständige aktuelle `PLUGS_UI`-Konfiguration wird vor jedem Schreiben gelesen. Nur `leds.mode` oder das angeforderte Feld von `leds.night_mode` ändert sich; alle übrigen Einstellungen einschließlich Farben, anderer Helligkeitswerte und Steuerungen bleiben erhalten.
 
-Verwende den Schalter **Nachtmodus** im Konfigurationsbereich des Geräts, um den Shelly-Nachtmodus zu aktivieren oder zu deaktivieren. Über **Beginn Nachtmodus** und **Ende Nachtmodus** legst du das lokale Zeitfenster fest. Die Integration bietet keine Einstellung für die Nachtmodus-Helligkeit; Änderungen am Schalter oder an den Zeiten behalten die auf dem Shelly konfigurierte Helligkeit bei.
+Mit dem Schalter **Nachtmodus nutzen** im Konfigurationsbereich des Geräts legst du fest, ob der Shelly-Nachtmodus genutzt wird. Ein eingeschalteter Schalter aktiviert den Zeitplan; er zeigt nicht an, ob der Nachtmodus gerade aktiv ist. Über **Beginn Nachtmodus** und **Ende Nachtmodus** legst du das lokale Zeitfenster fest. Mit **Helligkeit Nachtmodus** stellst du die gewünschte LED-Helligkeit von 0 bis 100 % ein; 0 % schaltet die LED während des aktiven Nachtmodus-Zeitfensters aus. Der Wert lässt sich auch in Automatisierungen über `number.set_value` ändern. Eine Änderung der Helligkeit behält den Ein/Aus-Zustand des Nachtmodus und das Zeitfenster bei; Änderungen am Schalter oder an den Zeiten behalten die konfigurierte Helligkeit bei.
+
+**Nachtmodus aktiv** ist eine reine Statusanzeige: **An** bedeutet, dass der Nachtmodus genutzt wird und die lokale Shelly-Uhrzeit im Zeitfenster liegt; ansonsten ist der Status **Aus**. Der Status gilt bei jeder Nachtmodus-Helligkeit und auch bei ausgeschaltetem LED-Anzeigemodus. Er aktualisiert sich zum Beginn und Ende des Zeitfensters. Die Startzeit gehört zum Zeitfenster, die Endzeit nicht; Zeitfenster über Mitternacht werden unterstützt. Wird der Nachtmodus genutzt, aber die Shelly-Uhr ist noch nicht synchronisiert, lautet der Status **Unbekannt**. Der umbenannte Schalter behält bei bestehenden Installationen seine Entitäts-ID.
+
+**Dimmwert Status-LED** zeigt die aktuell wirksame Helligkeit in Prozent. Bei ausgeschaltetem LED-Anzeigemodus sind es 0 %; im aktiven Nachtmodus gilt dessen Helligkeit. Außerhalb des Nachtmodus verwendet der Sensor die Helligkeit des LED-Modus `power` oder im Modus `switch` die zum aktuellen Relaiszustand gehörende Helligkeit. Er aktualisiert sich bei Konfigurations- und Relaisänderungen sowie an den Grenzen des Nachtmodus. Der Wert wird aus den von Shelly gemeldeten Einstellungen und Zuständen berechnet; er ist keine Messung des ausgestrahlten Lichts. Siehe [Shelly-API](https://shelly-api-docs.shelly.cloud/gen2/Devices/Gen2/ShellyPlusPlugS/).
+
+Home Assistant zeichnet den Sensor im Verlauf auf, sofern er nicht über die Recorder-Konfiguration ausgeschlossen ist. Die Zustandsklasse `measurement` ermöglicht außerdem Langzeitstatistiken. Fehlen benötigte Helligkeitswerte oder der Relaiszustand, oder ist bei genutztem Nachtmodus die Shelly-Uhr noch nicht synchronisiert, bleibt der Wert **Unbekannt**. Bei unterbrochener Geräteverbindung ist er **Nicht verfügbar**.
 
 ## Aktuelle Einschränkungen
 
-Version 1.0.0 unterstützt LED an/aus sowie das Aktivieren, Deaktivieren und Planen des Nachtmodus. RGB-Farbe, Helligkeit, getrennte Auswahl von LED-Modi, leistungsabhängige Anzeige und automatische Erkennung sind nicht implementiert. `PLUGS_UI` hat keinen eigenen Live-Status; die Entität leitet den wirksamen LED-Zustand daher aus dem konfigurierten Modus und dem Zeitplan eines Nachtmodus mit Helligkeit null ab, statt das ausgestrahlte Licht direkt zu messen.
+Die Integration unterstützt LED an/aus, die Anzeige und Aufzeichnung des wirksamen Dimmwerts sowie das Aktivieren, Deaktivieren, Planen und Einstellen der Helligkeit des Nachtmodus. Das Einstellen der RGB-Farbe und der LED-Helligkeit außerhalb des Nachtmodus, getrennte Auswahl von LED-Modi, leistungsabhängige Anzeige und automatische Erkennung sind nicht implementiert. `PLUGS_UI` hat keinen eigenen Live-Status; die Entitäten leiten den LED-Zustand daher aus den Einstellungen und Gerätezuständen ab.
 
 ## Kompatibilität
 
@@ -70,6 +79,7 @@ Die Integration nutzt einen separaten Konfigurationseintrag und eine MAC-adressb
 - Stelle sicher, dass das Gerät `PLUGS_UI` bereitstellt und unterstützte Plus-Plug-S-Firmware verwendet.
 - Bei aktivierter Authentifizierung öffne die erneute Anmeldung der Integration und gib die aktuellen `admin`-Zugangsdaten ein.
 - Wirkt der LED-Zustand nach Änderungen in der Geräte-Weboberfläche veraltet, warte kurz auf das Push-Ereignis `config_changed` oder die Aktualisierung nach fünf Minuten.
+- Scheitert der Start mit `No module named 'aioshelly.json'`, aktualisiere alle Integrationsdateien einschließlich `manifest.json` und starte Home Assistant Core vollständig neu. Diese Integration nutzt die von der offiziellen Shelly-Integration verwaltete `aioshelly`-Version und installiert keine eigene Version. Ein Neuladen allein entfernt keine Python-Module, die während des Starts bereits geladen wurden.
 
 ## Aktualisierung
 
@@ -77,7 +87,7 @@ Aktualisiere über HACS und starte Home Assistant neu, wenn dies angefordert wir
 
 ## Geplante Funktionen
 
-Künftige Versionen können RGB-Farbe, Helligkeit, explizite Auswahl von LED-Modi, leistungsabhängige Anzeige, automatische Erkennung und weitere Shelly-Modelle ergänzen. Keine dieser Funktionen ist in v1 implementiert.
+Künftige Versionen können das Einstellen von RGB-Farbe und LED-Helligkeit außerhalb des Nachtmodus, explizite Auswahl von LED-Modi, leistungsabhängige Anzeige, automatische Erkennung und weitere Shelly-Modelle ergänzen. Diese Funktionen sind noch nicht implementiert.
 
 ## Lizenz
 

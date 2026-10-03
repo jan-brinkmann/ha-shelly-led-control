@@ -1,16 +1,17 @@
 {
+  "domain": "shelly_led_control",
+  "name": "Shelly LED Control",
+  "after_dependencies": [
+    "shelly"
+  ],
   "codeowners": [
     "@jan-brinkmann"
   ],
   "config_flow": true,
   "documentation": "https://github.com/jan-brinkmann/ha-shelly-led-control#readme",
-  "domain": "shelly_led_control",
   "integration_type": "device",
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/jan-brinkmann/ha-shelly-led-control/issues",
-  "name": "Shelly LED Control",
-  "requirements": [
-    "aioshelly==13.33.0"
-  ],
+  "requirements": [],
   "version": "1.0.0"
 }

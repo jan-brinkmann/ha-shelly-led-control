@@ -1,5 +1,5 @@
 homeassistant
-aioshelly==13.33.0
+aioshelly
 pytest
 pytest-asyncio
 pytest-homeassistant-custom-component

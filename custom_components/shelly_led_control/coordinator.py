@@ -18,6 +18,7 @@ from .api import (
     ShellyLedClient,
     ShellyNightMode,
     ShellyUnsupportedDeviceError,
+    led_brightness_from_config,
     led_mode_from_config,
     night_mode_from_config,
 )
@@ -32,11 +33,41 @@ LOGGER = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class ShellyLedState:
-    """Represent the effective LED indication from PLUGS_UI configuration."""
+    """Represent LED indication, effective brightness and night-mode activity."""
 
     mode: str
     night_mode: ShellyNightMode
     device_time: time | None
+    normal_brightness: float | None = None
+
+    @property
+    def brightness(self) -> float | None:
+        """Return effective brightness in percent, or None if it is unknown.
+
+        Disabled indication is always zero. Active night mode overrides normal
+        brightness. An enabled schedule without a synchronized clock is unknown.
+        """
+        if self.mode == LED_MODE_OFF:
+            return 0
+        if self.mode not in {"power", "switch"}:
+            return None
+        if (active := self.night_mode_active) is None:
+            return None
+        if active:
+            return self.night_mode.brightness
+        return self.normal_brightness
+
+    @property
+    def night_mode_active(self) -> bool | None:
+        """Return current night-mode activity, or None if the clock is unknown.
+
+        Disabled night mode is always inactive, even before clock synchronization.
+        """
+        if not self.night_mode.enabled:
+            return False
+        if self.device_time is None:
+            return None
+        return self.night_mode.is_active_at(self.device_time)
 
     @property
     def is_on(self) -> bool:
@@ -48,7 +79,7 @@ class ShellyLedState:
 
 
 class ShellyLedCoordinator(DataUpdateCoordinator[ShellyLedState]):
-    """Coordinate PLUGS_UI configuration and availability for one Shelly."""
+    """Coordinate LED configuration, relay state and availability for one Shelly."""
 
     config_entry: ShellyLedConfigEntry
 
@@ -74,7 +105,7 @@ class ShellyLedCoordinator(DataUpdateCoordinator[ShellyLedState]):
         )
 
     async def _async_update_data(self) -> ShellyLedState:
-        """Fetch LED configuration and its Shelly-local time for state mapping.
+        """Fetch configuration, Shelly-local time and switch-mode relay output.
 
         Raises:
             ConfigEntryAuthFailed: If stored Shelly credentials are no longer valid.
@@ -83,10 +114,17 @@ class ShellyLedCoordinator(DataUpdateCoordinator[ShellyLedState]):
         try:
             config = await self.client.async_get_led_config()
             device_time = await self.client.async_get_device_time()
+            mode = led_mode_from_config(config)
+            switch_output = (
+                await self.client.async_get_switch_output()
+                if mode == "switch"
+                else None
+            )
             state = ShellyLedState(
-                mode=led_mode_from_config(config),
+                mode=mode,
                 night_mode=night_mode_from_config(config),
                 device_time=device_time,
+                normal_brightness=led_brightness_from_config(config, switch_output),
             )
             self._async_schedule_night_mode_transition(state.night_mode, device_time)
             return state
@@ -127,6 +165,28 @@ class ShellyLedCoordinator(DataUpdateCoordinator[ShellyLedState]):
         """
         try:
             await self.client.async_set_night_mode_enabled(enabled)
+            await self.async_request_refresh()
+        except InvalidAuthError as err:
+            raise HomeAssistantError("Shelly credentials are no longer valid") from err
+        except (
+            DeviceConnectionError,
+            RpcCallError,
+            ShellyUnsupportedDeviceError,
+            ValueError,
+        ) as err:
+            raise HomeAssistantError("Unable to update Shelly night mode") from err
+
+    async def async_set_night_mode_brightness(self, value: float) -> None:
+        """Apply night-mode brightness and refresh all entities from the device.
+
+        Args:
+            value: The LED brightness in percent, from 0 to 100 inclusive.
+
+        Raises:
+            HomeAssistantError: If the Shelly cannot accept the requested change.
+        """
+        try:
+            await self.client.async_set_night_mode_brightness(value)
             await self.async_request_refresh()
         except InvalidAuthError as err:
             raise HomeAssistantError("Shelly credentials are no longer valid") from err
@@ -184,8 +244,10 @@ class ShellyLedCoordinator(DataUpdateCoordinator[ShellyLedState]):
 
     @callback
     def _async_handle_connection_change(self) -> None:
-        """Notify entities immediately when the persistent RPC link disconnects."""
-        self.async_update_listeners()
+        """Mark data unavailable on disconnect and recover on the next refresh."""
+        self.async_set_update_error(
+            UpdateFailed("Shelly RPC connection is unavailable")
+        )
 
     def async_cancel_scheduled_updates(self) -> None:
         """Cancel the timer that updates entities at a night-mode boundary."""
@@ -197,11 +259,10 @@ class ShellyLedCoordinator(DataUpdateCoordinator[ShellyLedState]):
     def _async_schedule_night_mode_transition(
         self, night_mode: ShellyNightMode, device_time: time | None
     ) -> None:
-        """Refresh entities at a zero-brightness night-mode boundary."""
+        """Refresh LED, brightness and activity at each enabled night-mode boundary."""
         self.async_cancel_scheduled_updates()
         if (
             not night_mode.enabled
-            or night_mode.brightness != 0
             or device_time is None
             or night_mode.start == night_mode.end
         ):

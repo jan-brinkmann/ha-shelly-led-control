@@ -5,8 +5,12 @@ from datetime import time
 from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
+from aioshelly.rpc_device import RpcUpdateType
 
-from custom_components.shelly_led_control.api import ShellyLedClient
+from custom_components.shelly_led_control.api import (
+    ShellyLedClient,
+    led_brightness_from_config,
+)
 from custom_components.shelly_led_control.const import RPC_TIMEOUT
 
 
@@ -129,3 +133,168 @@ async def test_updating_night_mode_start_preserves_other_settings() -> None:
     assert device.call_rpc.await_args_list[-1] == call(
         "PLUGS_UI.SetConfig", {"config": expected_config}, timeout=RPC_TIMEOUT
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("brightness", [0, 1, 42.5, 100])
+@pytest.mark.parametrize("enabled", [False, True])
+async def test_updating_night_mode_brightness_preserves_other_settings(
+    brightness: float, enabled: bool
+) -> None:
+    """Change only brightness, including zero, without mutating the read config."""
+    led_config = {
+        "leds": {
+            "mode": "power",
+            "colors": {
+                "switch:0": {
+                    "on": {"rgb": [0, 100, 0], "brightness": 80},
+                    "off": {"rgb": [100, 0, 0], "brightness": 60},
+                },
+                "power": {"brightness": 70},
+            },
+            "night_mode": {
+                "enable": enabled,
+                "brightness": 25,
+                "active_between": ["22:00", "06:00"],
+            },
+        },
+        "controls": {"switch:0": {"in_mode": "momentary"}},
+    }
+    original_config = deepcopy(led_config)
+    device = MagicMock()
+    device.connected = True
+    device.call_rpc = AsyncMock(side_effect=[led_config, {}])
+    client = ShellyLedClient(MagicMock(), "192.0.2.10", None, None)
+    client._device = device
+
+    await client.async_set_night_mode_brightness(brightness)
+
+    expected_config = deepcopy(original_config)
+    expected_config["leds"]["night_mode"]["brightness"] = brightness
+    assert device.call_rpc.await_args_list == [
+        call("PLUGS_UI.GetConfig", timeout=RPC_TIMEOUT),
+        call("PLUGS_UI.SetConfig", {"config": expected_config}, timeout=RPC_TIMEOUT),
+    ]
+    assert led_config == original_config
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "brightness", [-1, 101, float("nan"), float("inf"), -float("inf"), True, "25", None]
+)
+async def test_invalid_night_mode_brightness_does_not_contact_device(
+    brightness: object,
+) -> None:
+    """Reject invalid percentages before reading or writing device settings."""
+    device = MagicMock()
+    device.connected = True
+    device.call_rpc = AsyncMock()
+    client = ShellyLedClient(MagicMock(), "192.0.2.10", None, None)
+    client._device = device
+
+    with pytest.raises(ValueError, match="brightness must be between 0 and 100"):
+        await client.async_set_night_mode_brightness(brightness)
+
+    device.call_rpc.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("mode", "output", "expected"),
+    [
+        ("power", None, 100),
+        ("switch", True, 80),
+        ("switch", False, 40),
+        ("switch", None, None),
+        ("off", None, 0),
+        ("unsupported", True, None),
+    ],
+)
+def test_normal_brightness_uses_mode_and_output(
+    led_config: dict, mode: str, output: bool | None, expected: float | None
+) -> None:
+    """Read the correct normal brightness branch without mutating settings."""
+    led_config["leds"]["mode"] = mode
+    original = deepcopy(led_config)
+
+    assert led_brightness_from_config(led_config, output) == expected
+    assert led_config == original
+
+
+@pytest.mark.parametrize(
+    "brightness", [-1, 101, float("nan"), float("inf"), True, "25", None]
+)
+def test_invalid_normal_brightness_is_unknown(
+    led_config: dict, brightness: object
+) -> None:
+    """Do not expose malformed percentages or fail unrelated entity updates."""
+    led_config["leds"]["colors"]["power"]["brightness"] = brightness
+
+    assert led_brightness_from_config(led_config, None) is None
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        {},
+        {"leds": None},
+        {"leds": {"mode": "power"}},
+        {"leds": {"mode": "power", "colors": []}},
+        {"leds": {"mode": "power", "colors": {"power": None}}},
+        {"leds": {"mode": "switch", "colors": {"switch:0": None}}},
+        {"leds": {"mode": "switch", "colors": {"switch:0": {"on": None}}}},
+    ],
+)
+def test_missing_normal_brightness_is_unknown(config: dict) -> None:
+    """Treat incomplete or malformed optional brightness branches as unknown."""
+    assert led_brightness_from_config(config, True) is None
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        ({"output": True}, True),
+        ({"output": False}, False),
+        ({}, None),
+        ({"output": 1}, None),
+        ({"output": "false"}, None),
+        (None, None),
+    ],
+)
+async def test_reading_switch_output(status: object, expected: bool | None) -> None:
+    """Fetch relay output for periodic recovery, preserving unknown status."""
+    device = MagicMock()
+    device.connected = True
+    device.call_rpc = AsyncMock(return_value=status)
+    client = ShellyLedClient(MagicMock(), "192.0.2.10", None, None)
+    client._device = device
+
+    assert await client.async_get_switch_output() is expected
+    device.call_rpc.assert_awaited_once_with(
+        "Switch.GetStatus", {"id": 0}, timeout=RPC_TIMEOUT
+    )
+
+
+async def test_relay_push_ignores_unchanged_output(hass) -> None:
+    """Refresh after relay output changes, ignoring unrelated power readings."""
+    device = MagicMock()
+    device.connected = True
+    device.status = {"switch:0": {"output": True, "apower": 10}}
+    device.call_rpc = AsyncMock(return_value={"output": True})
+    client = ShellyLedClient(hass, "192.0.2.10", None, None)
+    client._device = device
+    refresh = AsyncMock()
+    availability = MagicMock()
+    client.async_set_callbacks(refresh, availability)
+    await client.async_get_switch_output()
+
+    client._async_handle_rpc_update(device, RpcUpdateType.STATUS)
+    device.status["switch:0"]["apower"] = 20
+    client._async_handle_rpc_update(device, RpcUpdateType.STATUS)
+    await hass.async_block_till_done()
+    refresh.assert_not_awaited()
+
+    device.status["switch:0"]["output"] = False
+    client._async_handle_rpc_update(device, RpcUpdateType.STATUS)
+    await hass.async_block_till_done()
+    refresh.assert_awaited_once()
+    availability.assert_not_called()
