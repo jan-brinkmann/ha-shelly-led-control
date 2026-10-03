@@ -17,7 +17,14 @@ from homeassistant.exceptions import (
 from .api import ShellyDeviceInfo, ShellyLedClient, ShellyUnsupportedDeviceError
 from .coordinator import ShellyLedCoordinator
 
-PLATFORMS: tuple[Platform, ...] = (Platform.LIGHT, Platform.SWITCH, Platform.TIME)
+PLATFORMS: tuple[Platform, ...] = (
+    Platform.BINARY_SENSOR,
+    Platform.LIGHT,
+    Platform.NUMBER,
+    Platform.SENSOR,
+    Platform.SWITCH,
+    Platform.TIME,
+)
 
 
 @dataclass(slots=True)
@@ -36,7 +43,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ShellyLedConfigEntry) ->
     """Set up Shelly LED Control from a config entry.
 
     The function establishes one local RPC connection, verifies that the
-    device exposes ``PLUGS_UI``, and starts the light platform.
+    device exposes ``PLUGS_UI``, and starts the entity platforms.
     """
     client = ShellyLedClient(
         hass,

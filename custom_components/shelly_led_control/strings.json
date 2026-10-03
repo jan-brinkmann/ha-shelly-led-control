@@ -36,14 +36,29 @@
     }
   },
   "entity": {
+    "binary_sensor": {
+      "night_mode_active": {
+        "name": "Night mode active"
+      }
+    },
     "light": {
       "status_led": {
         "name": "Status LED"
       }
     },
+    "number": {
+      "night_mode_brightness": {
+        "name": "Night mode brightness"
+      }
+    },
+    "sensor": {
+      "status_led_brightness": {
+        "name": "Status LED brightness"
+      }
+    },
     "switch": {
       "night_mode": {
-        "name": "Night mode"
+        "name": "Use night mode"
       }
     },
     "time": {

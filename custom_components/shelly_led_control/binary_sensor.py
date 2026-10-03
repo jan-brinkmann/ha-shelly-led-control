@@ -1,11 +1,10 @@
-"""Switch platform for Shelly status LED night mode."""
+"""Binary sensor platform for current Shelly status LED night-mode activity."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from homeassistant.components.switch import SwitchEntity
-from homeassistant.const import EntityCategory
+from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -25,26 +24,29 @@ async def async_setup_entry(
     entry: ShellyLedConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Add the night-mode switch for a configured Shelly device."""
+    """Add a read-only night-mode activity sensor for a configured Shelly."""
     del hass
-    async_add_entities([ShellyNightModeSwitch(entry, entry.runtime_data.coordinator)])
+    async_add_entities(
+        [ShellyNightModeActiveSensor(entry, entry.runtime_data.coordinator)]
+    )
 
 
-class ShellyNightModeSwitch(CoordinatorEntity[ShellyLedCoordinator], SwitchEntity):
-    """Control whether Shelly LED night mode is used, regardless of current time."""
+class ShellyNightModeActiveSensor(
+    CoordinatorEntity[ShellyLedCoordinator], BinarySensorEntity
+):
+    """Report whether enabled night mode is inside its Shelly-local time window."""
 
-    _attr_entity_category = EntityCategory.CONFIG
     _attr_has_entity_name = True
     _attr_icon = "mdi:weather-night"
-    _attr_translation_key = "night_mode"
+    _attr_translation_key = "night_mode_active"
 
     def __init__(
         self, entry: ShellyLedConfigEntry, coordinator: ShellyLedCoordinator
     ) -> None:
-        """Initialize stable entity and device registry metadata."""
+        """Initialize stable sensor and device registry metadata."""
         super().__init__(coordinator)
         device_info = entry.runtime_data.device_info
-        self._attr_unique_id = f"{entry.unique_id}_night_mode"
+        self._attr_unique_id = f"{entry.unique_id}_night_mode_active"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.unique_id)},
             connections={(CONNECTION_NETWORK_MAC, device_info.mac)},
@@ -61,17 +63,7 @@ class ShellyNightModeSwitch(CoordinatorEntity[ShellyLedCoordinator], SwitchEntit
 
     @property
     def is_on(self) -> bool | None:
-        """Return whether night mode is enabled in the current configuration."""
+        """Return current night-mode activity, or None when it cannot be determined."""
         if self.coordinator.data is None:
             return None
-        return self.coordinator.data.night_mode.enabled
-
-    async def async_turn_on(self, **kwargs: object) -> None:
-        """Enable Shelly LED night mode."""
-        del kwargs
-        await self.coordinator.async_set_night_mode_enabled(True)
-
-    async def async_turn_off(self, **kwargs: object) -> None:
-        """Disable Shelly LED night mode."""
-        del kwargs
-        await self.coordinator.async_set_night_mode_enabled(False)
+        return self.coordinator.data.night_mode_active
