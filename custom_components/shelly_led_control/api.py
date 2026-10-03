@@ -93,6 +93,30 @@ def led_brightness_from_config(
         return None
     if leds.get("mode") == LED_MODE_OFF:
         return 0
+    settings = _led_brightness_settings_from_config(config, switch_output)
+    if settings is None:
+        return None
+    brightness = settings.get("brightness")
+    if (
+        isinstance(brightness, bool)
+        or not isinstance(brightness, int | float)
+        or not 0 <= brightness <= 100
+    ):
+        return None
+    return brightness
+
+
+def _led_brightness_settings_from_config(
+    config: dict[str, Any], switch_output: bool | None
+) -> dict[str, Any] | None:
+    """Return the current normal-brightness settings without copying or mutating.
+
+    Disabled or unsupported modes, unknown relay output and malformed color
+    branches return None. A missing brightness field can be added by a writer.
+    """
+    leds = config.get("leds")
+    if not isinstance(leds, dict):
+        return None
     colors = leds.get("colors")
     if not isinstance(colors, dict):
         return None
@@ -105,16 +129,7 @@ def led_brightness_from_config(
         settings = switch_colors.get("on" if switch_output else "off")
     else:
         return None
-    if not isinstance(settings, dict):
-        return None
-    brightness = settings.get("brightness")
-    if (
-        isinstance(brightness, bool)
-        or not isinstance(brightness, int | float)
-        or not 0 <= brightness <= 100
-    ):
-        return None
-    return brightness
+    return settings if isinstance(settings, dict) else None
 
 
 def _switch_output_from_status(status: object) -> bool | None:
@@ -296,7 +311,7 @@ class ShellyLedClient:
 
         Returns:
             The complete component configuration so callers can preserve fields
-            that are outside the v1 on/off scope.
+            that are outside the requested LED or night-mode change.
         """
         device = self._require_device()
         config = await device.call_rpc("PLUGS_UI.GetConfig", timeout=RPC_TIMEOUT)
@@ -376,6 +391,51 @@ class ShellyLedClient:
             )
             if target_mode != LED_MODE_OFF:
                 self._last_enabled_mode = target_mode
+
+    async def async_set_led_brightness(self, value: float) -> None:
+        """Set normal brightness for the current LED mode and relay state.
+
+        Read the latest configuration and, in switch mode, the relay output
+        under the command lock. Change only the selected brightness field,
+        preserving the other relay state, colors, mode and night-mode settings.
+
+        Args:
+            value: The normal LED brightness from 0 to 100 percent inclusive.
+
+        Raises:
+            ValueError: If the percentage is invalid.
+            ShellyUnsupportedDeviceError: If no brightness branch can be selected.
+            DeviceConnectionError: If the device cannot be contacted.
+            InvalidAuthError: If credentials are rejected.
+            RpcCallError: If the device rejects an RPC request.
+        """
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int | float)
+            or not 0 <= value <= 100
+        ):
+            raise ValueError("Shelly LED brightness must be between 0 and 100")
+        async with self._command_lock:
+            config = await self.async_get_led_config()
+            mode = led_mode_from_config(config)
+            switch_output = (
+                await self.async_get_switch_output() if mode == "switch" else None
+            )
+            updated_config = deepcopy(config)
+            settings = _led_brightness_settings_from_config(
+                updated_config, switch_output
+            )
+            if settings is None:
+                raise ShellyUnsupportedDeviceError(
+                    "PLUGS_UI has no selectable normal brightness setting"
+                )
+            settings["brightness"] = value
+            device = self._require_device()
+            await device.call_rpc(
+                "PLUGS_UI.SetConfig",
+                {"config": updated_config},
+                timeout=RPC_TIMEOUT,
+            )
 
     async def async_set_night_mode_enabled(self, enabled: bool) -> None:
         """Enable or disable night mode without changing its time window."""

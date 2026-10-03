@@ -22,11 +22,12 @@
 
 - One `light` entity named **Status LED** for each configured Shelly.
 - `light.turn_on` enables LED indication and `light.turn_off` disables it.
-- `mode: off`, or an active zero-brightness night mode, is represented as off; the state uses the Shelly's local clock and updates at night-mode boundaries.
+- `mode: off`, or an effective brightness of zero, is represented as off; the state uses the Shelly's local clock and updates at night-mode boundaries.
 - A **Use night mode** configuration switch plus **Night mode start** and **Night mode end** time entities.
 - A read-only **Night mode active** binary sensor that is on when night mode is enabled and the Shelly's local time is inside its configured window, independent of brightness.
 - A read-only **Status LED brightness** sensor for the current effective brightness from 0 to 100%, including night mode, with Home Assistant history and long-term statistics.
 - A **Night mode brightness** configuration number from 0 to 100% in 1% steps.
+- A **Normal brightness** configuration number from 0 to 100% in 1% steps for the current LED mode and relay state outside night mode.
 - The night-mode time window is written as Shelly's local `HH:MM` start and end values without changing its configured brightness.
 - Uses local asynchronous Shelly RPC, digest authentication when enabled, push events and a five-minute fallback refresh.
 - Supports multiple devices with MAC-address-based unique IDs.
@@ -57,7 +58,9 @@ Use **Status LED** like any on/off light in dashboards, automations, scenes or w
 - **Off** writes `PLUGS_UI.leds.mode: off`.
 - **On** restores the last non-off mode seen while the integration is running. After a Home Assistant restart while the device is off, it uses `switch` as the stable enabled mode.
 
-The complete current `PLUGS_UI` configuration is read before every write. Only `leds.mode` or the requested `leds.night_mode` field changes; all other settings, including colors, other brightness values and controls, are preserved.
+The complete current `PLUGS_UI` configuration is read before every write. Only `leds.mode`, the selected normal brightness field in `leds.colors`, or the requested `leds.night_mode` field changes; all other settings, including colors, other brightness values and controls, are preserved.
+
+Use **Normal brightness** in the device's configuration area to set the brightness outside night mode from 0 to 100%. In `power` mode, it changes the power indication brightness. In `switch` mode, it changes only the brightness for the current relay output (on or off); the other state's brightness is preserved. The setting follows changes to the LED mode and relay output. It always shows the normal setting, including while night mode is active, so you can prepare the brightness used after night mode ends. Night-mode brightness and its schedule remain unchanged. At 0%, the LED is off outside night mode. The setting is unavailable while LED indication is disabled (`mode: off`) or the mode is unsupported. Missing brightness or unknown relay output gives **Unknown**. You can also use `number.set_value` in automations.
 
 Use the **Use night mode** switch in the device's configuration area to choose whether the Shelly night mode is used. An enabled switch means the schedule is enabled; it does not indicate that night mode is currently active. Set **Night mode start** and **Night mode end** to define its local time window. Set **Night mode brightness** to the desired LED brightness from 0 to 100%; 0% turns the LED off during the active night-mode window. The value can also be changed through `number.set_value` in automations. Changing brightness preserves the enabled state and time window, and changing the switch or either time preserves brightness.
 
@@ -69,7 +72,7 @@ Home Assistant records the sensor in history unless it is excluded in the Record
 
 ## Current limitations
 
-The integration supports LED on/off, displaying and recording effective brightness, plus enabling, disabling, scheduling and adjusting the brightness of night mode. Adjusting RGB color and LED brightness outside night mode, separate LED-mode selection, power-dependent indication and automatic discovery are not implemented. `PLUGS_UI` has no independent live status, so the entities derive LED state from settings and device state.
+The integration supports LED on/off, displaying and recording effective brightness, adjusting normal brightness, plus enabling, disabling, scheduling and adjusting the brightness of night mode. Adjusting RGB color, separate LED-mode selection, power-dependent indication and automatic discovery are not implemented. `PLUGS_UI` has no independent live status, so the entities derive LED state from settings and device state.
 
 ## Compatibility
 
@@ -89,7 +92,7 @@ Update through HACS and restart Home Assistant when requested. For manual instal
 
 ## Planned features
 
-Future versions may add adjustment of RGB color and LED brightness outside night mode, explicit LED-mode selection, power-dependent indication, automatic discovery and additional Shelly models. These features are not implemented yet.
+Future versions may add adjustment of RGB color, explicit LED-mode selection, power-dependent indication, automatic discovery and additional Shelly models. These features are not implemented yet.
 
 ## License
 

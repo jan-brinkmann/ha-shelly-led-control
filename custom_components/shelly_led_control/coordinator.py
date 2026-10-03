@@ -71,10 +71,17 @@ class ShellyLedState:
 
     @property
     def is_on(self) -> bool:
-        """Return whether the physical LED is on at the Shelly's current time."""
+        """Return whether indication is enabled and its brightness is not zero.
+
+        Unknown brightness retains the enabled indication state. Normal zero
+        brightness suppresses the LED only when night mode is known to be inactive.
+        """
         return self.mode != LED_MODE_OFF and not (
-            self.device_time is not None
-            and self.night_mode.hides_led_at(self.device_time)
+            (
+                self.device_time is not None
+                and self.night_mode.hides_led_at(self.device_time)
+            )
+            or (self.night_mode_active is False and self.normal_brightness == 0)
         )
 
 
@@ -156,6 +163,28 @@ class ShellyLedCoordinator(DataUpdateCoordinator[ShellyLedState]):
             raise HomeAssistantError(
                 "Unable to update Shelly LED configuration"
             ) from err
+
+    async def async_set_brightness(self, value: float) -> None:
+        """Apply normal LED brightness and refresh entities from the device.
+
+        Args:
+            value: The LED brightness in percent, from 0 to 100 inclusive.
+
+        Raises:
+            HomeAssistantError: If the value is invalid or the device update fails.
+        """
+        try:
+            await self.client.async_set_led_brightness(value)
+            await self.async_request_refresh()
+        except InvalidAuthError as err:
+            raise HomeAssistantError("Shelly credentials are no longer valid") from err
+        except (
+            DeviceConnectionError,
+            RpcCallError,
+            ShellyUnsupportedDeviceError,
+            ValueError,
+        ) as err:
+            raise HomeAssistantError("Unable to update Shelly LED brightness") from err
 
     async def async_set_night_mode_enabled(self, enabled: bool) -> None:
         """Apply a requested night-mode enabled state and refresh entities.

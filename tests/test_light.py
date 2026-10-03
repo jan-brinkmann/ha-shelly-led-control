@@ -195,6 +195,35 @@ def test_zero_brightness_night_mode_turns_light_off_inside_window() -> None:
     assert inactive_state.is_on
 
 
+@pytest.mark.parametrize(
+    ("normal_brightness", "enabled", "clock", "expected_on"),
+    [
+        (0, False, None, False),
+        (0, True, time(12, 0), False),
+        (0, True, time(23, 0), True),
+        (0, True, None, True),
+        (None, False, None, True),
+    ],
+)
+def test_normal_zero_brightness_respects_night_mode_and_unknown_clock(
+    led_config: dict,
+    normal_brightness: float | None,
+    enabled: bool,
+    clock: time | None,
+    expected_on: bool,
+) -> None:
+    """Use normal zero only outside night mode and retain unknown LED states."""
+    led_config["leds"]["night_mode"]["enable"] = enabled
+    state = ShellyLedState(
+        mode="power",
+        night_mode=night_mode_from_config(led_config),
+        device_time=clock,
+        normal_brightness=normal_brightness,
+    )
+
+    assert state.is_on is expected_on
+
+
 @pytest.mark.asyncio
 async def test_connection_loss_marks_entity_unavailable(hass, mock_client) -> None:
     """Mark the light unavailable when its RPC connection is lost."""

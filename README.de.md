@@ -22,11 +22,12 @@
 
 - Eine `light`-Entität namens **Status-LED** für jedes eingerichtete Shelly.
 - `light.turn_on` aktiviert die LED-Anzeige und `light.turn_off` deaktiviert sie.
-- `mode: off` sowie ein aktiver Nachtmodus mit Helligkeit null werden als aus angezeigt; der Zustand nutzt die lokale Uhrzeit des Shellys und aktualisiert sich an den Grenzen des Zeitfensters.
+- `mode: off` sowie eine wirksame Helligkeit von null werden als aus angezeigt; der Zustand nutzt die lokale Uhrzeit des Shellys und aktualisiert sich an den Grenzen des Zeitfensters.
 - Ein Konfigurationsschalter **Nachtmodus nutzen** sowie die Zeit-Entitäten **Beginn Nachtmodus** und **Ende Nachtmodus**.
 - Ein schreibgeschützter Binärsensor **Nachtmodus aktiv**, der eingeschaltet ist, wenn der Nachtmodus genutzt wird und die lokale Shelly-Uhrzeit im konfigurierten Zeitfenster liegt, unabhängig von der Helligkeit.
 - Ein schreibgeschützter Sensor **Dimmwert Status-LED** für die aktuell wirksame Helligkeit von 0 bis 100 %, einschließlich Nachtmodus, mit Verlauf und Langzeitstatistik in Home Assistant.
 - Eine Zahl-Entität **Helligkeit Nachtmodus** im Konfigurationsbereich mit 0 bis 100 % in Schritten von 1 %.
+- Eine Zahl-Entität **Helligkeit Normalbetrieb** im Konfigurationsbereich mit 0 bis 100 % in Schritten von 1 % für den aktuellen LED-Modus und Relaiszustand außerhalb des Nachtmodus.
 - Das Zeitfenster des Nachtmodus wird als lokale Shelly-Start- und Endzeit im Format `HH:MM` geschrieben, ohne die konfigurierte Helligkeit zu verändern.
 - Nutzt lokale asynchrone Shelly-RPC, Digest-Authentifizierung bei aktivierter Anmeldung, Push-Ereignisse und eine Aktualisierung alle fünf Minuten als Rückfallebene.
 - Unterstützt mehrere Geräte mit stabilen, MAC-adressbasierten eindeutigen IDs.
@@ -57,7 +58,9 @@ Verwende die **Status-LED** wie jedes Ein/Aus-Licht in Dashboards, Automatisieru
 - **Aus** schreibt `PLUGS_UI.leds.mode: off`.
 - **An** stellt den zuletzt beobachteten Nicht-Aus-Modus wieder her, solange diese Integration läuft. Nach einem Home-Assistant-Neustart bei deaktivierter LED wird `switch` als stabiler aktivierter Modus verwendet.
 
-Die vollständige aktuelle `PLUGS_UI`-Konfiguration wird vor jedem Schreiben gelesen. Nur `leds.mode` oder das angeforderte Feld von `leds.night_mode` ändert sich; alle übrigen Einstellungen einschließlich Farben, anderer Helligkeitswerte und Steuerungen bleiben erhalten.
+Die vollständige aktuelle `PLUGS_UI`-Konfiguration wird vor jedem Schreiben gelesen. Nur `leds.mode`, der ausgewählte normale Helligkeitswert in `leds.colors` oder das angeforderte Feld von `leds.night_mode` ändert sich; alle übrigen Einstellungen einschließlich Farben, anderer Helligkeitswerte und Steuerungen bleiben erhalten.
+
+Mit **Helligkeit Normalbetrieb** im Konfigurationsbereich des Geräts stellst du die Helligkeit außerhalb des Nachtmodus von 0 bis 100 % ein. Im LED-Modus `power` ändert sich die Helligkeit der Leistungsanzeige. Im Modus `switch` ändert sich nur der Wert für den aktuellen Relaiszustand (an oder aus); die Helligkeit des anderen Zustands bleibt erhalten. Die Einstellung folgt Änderungen des LED-Modus und Relaiszustands. Sie zeigt auch während eines aktiven Nachtmodus den normalen Helligkeitswert, sodass du die Helligkeit für danach vorbereiten kannst. Nachtmodus-Helligkeit und Zeitplan bleiben erhalten. Bei 0 % ist die LED außerhalb des Nachtmodus aus. Bei deaktivierter LED-Anzeige (`mode: off`) oder einem nicht unterstützten Modus ist die Einstellung **Nicht verfügbar**. Fehlt der Helligkeitswert oder ist der Relaiszustand unbekannt, lautet der Wert **Unbekannt**. Der Wert lässt sich auch in Automatisierungen über `number.set_value` ändern.
 
 Mit dem Schalter **Nachtmodus nutzen** im Konfigurationsbereich des Geräts legst du fest, ob der Shelly-Nachtmodus genutzt wird. Ein eingeschalteter Schalter aktiviert den Zeitplan; er zeigt nicht an, ob der Nachtmodus gerade aktiv ist. Über **Beginn Nachtmodus** und **Ende Nachtmodus** legst du das lokale Zeitfenster fest. Mit **Helligkeit Nachtmodus** stellst du die gewünschte LED-Helligkeit von 0 bis 100 % ein; 0 % schaltet die LED während des aktiven Nachtmodus-Zeitfensters aus. Der Wert lässt sich auch in Automatisierungen über `number.set_value` ändern. Eine Änderung der Helligkeit behält den Ein/Aus-Zustand des Nachtmodus und das Zeitfenster bei; Änderungen am Schalter oder an den Zeiten behalten die konfigurierte Helligkeit bei.
 
@@ -69,7 +72,7 @@ Home Assistant zeichnet den Sensor im Verlauf auf, sofern er nicht über die Rec
 
 ## Aktuelle Einschränkungen
 
-Die Integration unterstützt LED an/aus, die Anzeige und Aufzeichnung des wirksamen Dimmwerts sowie das Aktivieren, Deaktivieren, Planen und Einstellen der Helligkeit des Nachtmodus. Das Einstellen der RGB-Farbe und der LED-Helligkeit außerhalb des Nachtmodus, getrennte Auswahl von LED-Modi, leistungsabhängige Anzeige und automatische Erkennung sind nicht implementiert. `PLUGS_UI` hat keinen eigenen Live-Status; die Entitäten leiten den LED-Zustand daher aus den Einstellungen und Gerätezuständen ab.
+Die Integration unterstützt LED an/aus, die Anzeige und Aufzeichnung des wirksamen Dimmwerts, das Einstellen der normalen Helligkeit sowie das Aktivieren, Deaktivieren, Planen und Einstellen der Helligkeit des Nachtmodus. Das Einstellen der RGB-Farbe, getrennte Auswahl von LED-Modi, leistungsabhängige Anzeige und automatische Erkennung sind nicht implementiert. `PLUGS_UI` hat keinen eigenen Live-Status; die Entitäten leiten den LED-Zustand daher aus den Einstellungen und Gerätezuständen ab.
 
 ## Kompatibilität
 
@@ -89,7 +92,7 @@ Aktualisiere über HACS und starte Home Assistant neu, wenn dies angefordert wir
 
 ## Geplante Funktionen
 
-Künftige Versionen können das Einstellen von RGB-Farbe und LED-Helligkeit außerhalb des Nachtmodus, explizite Auswahl von LED-Modi, leistungsabhängige Anzeige, automatische Erkennung und weitere Shelly-Modelle ergänzen. Diese Funktionen sind noch nicht implementiert.
+Künftige Versionen können das Einstellen der RGB-Farbe, explizite Auswahl von LED-Modi, leistungsabhängige Anzeige, automatische Erkennung und weitere Shelly-Modelle ergänzen. Diese Funktionen sind noch nicht implementiert.
 
 ## Lizenz
 
