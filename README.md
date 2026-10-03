@@ -20,7 +20,7 @@
 
 - One `light` entity named **Status LED** for each configured Shelly.
 - `light.turn_on` enables LED indication and `light.turn_off` disables it.
-- `mode: off` is represented as off; each other supported LED mode is represented as on.
+- `mode: off`, or an active zero-brightness night mode, is represented as off; the state uses the Shelly's local clock and updates at night-mode boundaries.
 - A **Night mode** configuration switch plus **Night mode start** and **Night mode end** time entities.
 - The night-mode time window is written as Shelly's local `HH:MM` start and end values without changing its configured brightness.
 - Uses local asynchronous Shelly RPC, digest authentication when enabled, push events and a five-minute fallback refresh.
@@ -58,7 +58,7 @@ Use the **Night mode** switch in the device's configuration area to enable or di
 
 ## Current limitations
 
-Version 1.0.0 supports LED on/off plus enabling, disabling and scheduling night mode. RGB color, brightness, separate LED-mode selection, power-dependent indication and automatic discovery are not implemented. `PLUGS_UI` has no independent live status, so the entity represents configured mode rather than a direct measurement of emitted light.
+Version 1.0.0 supports LED on/off plus enabling, disabling and scheduling night mode. RGB color, brightness, separate LED-mode selection, power-dependent indication and automatic discovery are not implemented. `PLUGS_UI` has no independent live status, so the entity derives the effective LED state from the configured mode and zero-brightness night-mode schedule rather than directly measuring emitted light.
 
 ## Compatibility
 

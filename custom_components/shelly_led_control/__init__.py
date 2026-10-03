@@ -72,5 +72,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ShellyLedConfigEntry) -
     """Unload a Shelly LED Control config entry and its RPC connection."""
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
+        entry.runtime_data.coordinator.async_cancel_scheduled_updates()
         await entry.runtime_data.client.async_disconnect()
     return unloaded

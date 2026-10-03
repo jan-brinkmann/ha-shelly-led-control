@@ -63,7 +63,7 @@ class ShellyStatusLedLight(CoordinatorEntity[ShellyLedCoordinator], LightEntity)
 
     @property
     def is_on(self) -> bool | None:
-        """Return the state derived from the current PLUGS_UI mode."""
+        """Return the effective state derived from the current LED configuration."""
         if self.coordinator.data is None:
             return None
         return self.coordinator.data.is_on

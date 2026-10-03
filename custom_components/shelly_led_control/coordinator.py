@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import time
+from datetime import datetime, time, timedelta
 from typing import TYPE_CHECKING
 
 from aioshelly.exceptions import DeviceConnectionError, InvalidAuthError, RpcCallError
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
+from homeassistant.helpers.event import async_track_point_in_time
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .api import (
     ShellyLedClient,
@@ -30,15 +32,19 @@ LOGGER = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class ShellyLedState:
-    """Represent the LED indication state derived from PLUGS_UI configuration."""
+    """Represent the effective LED indication from PLUGS_UI configuration."""
 
     mode: str
     night_mode: ShellyNightMode
+    device_time: time | None
 
     @property
     def is_on(self) -> bool:
-        """Return whether the Shelly LED indication is enabled."""
-        return self.mode != LED_MODE_OFF
+        """Return whether the physical LED is on at the Shelly's current time."""
+        return self.mode != LED_MODE_OFF and not (
+            self.device_time is not None
+            and self.night_mode.hides_led_at(self.device_time)
+        )
 
 
 class ShellyLedCoordinator(DataUpdateCoordinator[ShellyLedState]):
@@ -54,6 +60,7 @@ class ShellyLedCoordinator(DataUpdateCoordinator[ShellyLedState]):
     ) -> None:
         """Initialize coordinator callbacks and a conservative fallback poll."""
         self.client = client
+        self._cancel_night_mode_transition: CALLBACK_TYPE | None = None
         super().__init__(
             hass,
             logger=LOGGER,
@@ -67,7 +74,7 @@ class ShellyLedCoordinator(DataUpdateCoordinator[ShellyLedState]):
         )
 
     async def _async_update_data(self) -> ShellyLedState:
-        """Fetch PLUGS_UI configuration and map its mode to an on/off state.
+        """Fetch LED configuration and its Shelly-local time for state mapping.
 
         Raises:
             ConfigEntryAuthFailed: If stored Shelly credentials are no longer valid.
@@ -75,10 +82,14 @@ class ShellyLedCoordinator(DataUpdateCoordinator[ShellyLedState]):
         """
         try:
             config = await self.client.async_get_led_config()
-            return ShellyLedState(
+            device_time = await self.client.async_get_device_time()
+            state = ShellyLedState(
                 mode=led_mode_from_config(config),
                 night_mode=night_mode_from_config(config),
+                device_time=device_time,
             )
+            self._async_schedule_night_mode_transition(state.night_mode, device_time)
+            return state
         except InvalidAuthError as err:
             raise ConfigEntryAuthFailed("Invalid Shelly credentials") from err
         except (
@@ -175,3 +186,58 @@ class ShellyLedCoordinator(DataUpdateCoordinator[ShellyLedState]):
     def _async_handle_connection_change(self) -> None:
         """Notify entities immediately when the persistent RPC link disconnects."""
         self.async_update_listeners()
+
+    def async_cancel_scheduled_updates(self) -> None:
+        """Cancel the timer that updates entities at a night-mode boundary."""
+        if self._cancel_night_mode_transition is not None:
+            self._cancel_night_mode_transition()
+            self._cancel_night_mode_transition = None
+
+    @callback
+    def _async_schedule_night_mode_transition(
+        self, night_mode: ShellyNightMode, device_time: time | None
+    ) -> None:
+        """Refresh entities at a zero-brightness night-mode boundary."""
+        self.async_cancel_scheduled_updates()
+        if (
+            not night_mode.enabled
+            or night_mode.brightness != 0
+            or device_time is None
+            or night_mode.start == night_mode.end
+        ):
+            return
+
+        transition = dt_util.now() + self._time_until_next_night_mode_transition(
+            night_mode, device_time
+        )
+        self._cancel_night_mode_transition = async_track_point_in_time(
+            self.hass, self._async_handle_night_mode_transition, transition
+        )
+
+    @staticmethod
+    def _time_until_next_night_mode_transition(
+        night_mode: ShellyNightMode, device_time: time
+    ) -> timedelta:
+        """Return the duration until the Shelly reaches its next time boundary."""
+        current_seconds = (
+            device_time.hour * 3600 + device_time.minute * 60 + device_time.second
+        )
+        seconds_until = []
+        for boundary in (night_mode.start, night_mode.end):
+            boundary_seconds = (
+                boundary.hour * 3600 + boundary.minute * 60 + boundary.second
+            )
+            duration = boundary_seconds - current_seconds
+            if duration <= 0:
+                duration += 24 * 60 * 60
+            seconds_until.append(duration)
+        return timedelta(seconds=min(seconds_until))
+
+    @callback
+    def _async_handle_night_mode_transition(self, now: datetime) -> None:
+        """Refresh the state against the Shelly clock after a time boundary."""
+        del now
+        self._cancel_night_mode_transition = None
+        self.hass.async_create_task(
+            self.async_request_refresh(), "refresh Shelly LED night-mode state"
+        )
