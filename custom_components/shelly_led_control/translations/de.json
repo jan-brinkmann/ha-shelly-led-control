@@ -49,6 +49,9 @@
     "number": {
       "night_mode_brightness": {
         "name": "Helligkeit Nachtmodus"
+      },
+      "normal_brightness": {
+        "name": "Helligkeit Normalbetrieb"
       }
     },
     "sensor": {

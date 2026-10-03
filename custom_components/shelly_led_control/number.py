@@ -1,4 +1,4 @@
-"""Number platform for Shelly status LED night-mode brightness."""
+"""Number platform for normal and night-mode Shelly status LED brightness."""
 
 from __future__ import annotations
 
@@ -25,26 +25,26 @@ async def async_setup_entry(
     entry: ShellyLedConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Add the night-mode brightness entity for a configured Shelly device."""
+    """Add normal and night-mode brightness settings for a Shelly device."""
     del hass
+    coordinator = entry.runtime_data.coordinator
     async_add_entities(
-        [ShellyNightModeBrightnessNumber(entry, entry.runtime_data.coordinator)]
+        [
+            ShellyLedBrightnessNumber(entry, coordinator),
+            ShellyNightModeBrightnessNumber(entry, coordinator),
+        ]
     )
 
 
-class ShellyNightModeBrightnessNumber(
-    CoordinatorEntity[ShellyLedCoordinator], NumberEntity
-):
-    """Expose Shelly LED night-mode brightness as a percentage setting."""
+class ShellyBrightnessNumber(CoordinatorEntity[ShellyLedCoordinator], NumberEntity):
+    """Share percentage limits, device identity and availability for brightness."""
 
     _attr_entity_category = EntityCategory.CONFIG
     _attr_has_entity_name = True
-    _attr_icon = "mdi:brightness-4"
     _attr_native_min_value = 0
     _attr_native_max_value = 100
     _attr_native_step = 1
     _attr_native_unit_of_measurement = PERCENTAGE
-    _attr_translation_key = "night_mode_brightness"
 
     def __init__(
         self, entry: ShellyLedConfigEntry, coordinator: ShellyLedCoordinator
@@ -52,7 +52,7 @@ class ShellyNightModeBrightnessNumber(
         """Initialize stable entity and device registry metadata."""
         super().__init__(coordinator)
         device_info = entry.runtime_data.device_info
-        self._attr_unique_id = f"{entry.unique_id}_night_mode_brightness"
+        self._attr_unique_id = f"{entry.unique_id}_{self._attr_translation_key}"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.unique_id)},
             connections={(CONNECTION_NETWORK_MAC, device_info.mac)},
@@ -66,6 +66,44 @@ class ShellyNightModeBrightnessNumber(
     def available(self) -> bool:
         """Return whether both the coordinator and Shelly RPC link are available."""
         return super().available and self.coordinator.client.connected
+
+
+class ShellyLedBrightnessNumber(ShellyBrightnessNumber):
+    """Expose normal brightness for the current LED mode and relay output."""
+
+    _attr_icon = "mdi:brightness-6"
+    _attr_translation_key = "normal_brightness"
+
+    @property
+    def available(self) -> bool:
+        """Require a connected device with an enabled, supported LED mode."""
+        return (
+            super().available
+            and self.coordinator.data is not None
+            and self.coordinator.data.mode in {"power", "switch"}
+        )
+
+    @property
+    def native_value(self) -> float | None:
+        """Return normal brightness independently of the night-mode schedule."""
+        if self.coordinator.data is None:
+            return None
+        return self.coordinator.data.normal_brightness
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set brightness for the latest LED mode and relay output, then refresh.
+
+        Raises:
+            HomeAssistantError: If the value is invalid or the device update fails.
+        """
+        await self.coordinator.async_set_brightness(value)
+
+
+class ShellyNightModeBrightnessNumber(ShellyBrightnessNumber):
+    """Expose Shelly LED night-mode brightness as a percentage setting."""
+
+    _attr_icon = "mdi:brightness-4"
+    _attr_translation_key = "night_mode_brightness"
 
     @property
     def native_value(self) -> float | None:

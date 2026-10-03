@@ -9,6 +9,7 @@ from aioshelly.rpc_device import RpcUpdateType
 
 from custom_components.shelly_led_control.api import (
     ShellyLedClient,
+    ShellyUnsupportedDeviceError,
     led_brightness_from_config,
 )
 from custom_components.shelly_led_control.const import RPC_TIMEOUT
@@ -180,10 +181,99 @@ async def test_updating_night_mode_brightness_preserves_other_settings(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
+    ("mode", "output"), [("power", None), ("switch", True), ("switch", False)]
+)
+@pytest.mark.parametrize("brightness", [0, 42.5, 100])
+@pytest.mark.parametrize("missing_brightness", [False, True])
+async def test_updating_normal_brightness_preserves_other_settings(
+    led_config: dict,
+    mode: str,
+    output: bool | None,
+    brightness: float,
+    missing_brightness: bool,
+) -> None:
+    """Write only the current branch, reading fresh relay output in switch mode."""
+    led_config["leds"]["mode"] = mode
+    led_config["controls"] = {"switch:0": {"in_mode": "detached"}}
+    branch = (
+        led_config["leds"]["colors"]["power"]
+        if mode == "power"
+        else led_config["leds"]["colors"]["switch:0"]["on" if output else "off"]
+    )
+    if missing_brightness:
+        del branch["brightness"]
+    original_config = deepcopy(led_config)
+    responses = [led_config]
+    if mode == "switch":
+        responses.append({"output": output})
+    responses.append({})
+    device = MagicMock()
+    device.connected = True
+    device.call_rpc = AsyncMock(side_effect=responses)
+    client = ShellyLedClient(MagicMock(), "192.0.2.10", None, None)
+    client._device = device
+    client._last_switch_output = not output
+
+    await client.async_set_led_brightness(brightness)
+
+    expected_config = deepcopy(original_config)
+    expected_branch = (
+        expected_config["leds"]["colors"]["power"]
+        if mode == "power"
+        else expected_config["leds"]["colors"]["switch:0"]["on" if output else "off"]
+    )
+    expected_branch["brightness"] = brightness
+    expected_calls = [call("PLUGS_UI.GetConfig", timeout=RPC_TIMEOUT)]
+    if mode == "switch":
+        expected_calls.append(call("Switch.GetStatus", {"id": 0}, timeout=RPC_TIMEOUT))
+    expected_calls.append(
+        call("PLUGS_UI.SetConfig", {"config": expected_config}, timeout=RPC_TIMEOUT)
+    )
+    assert device.call_rpc.await_args_list == expected_calls
+    assert led_config == original_config
+
+
+@pytest.mark.parametrize(
+    ("config", "output"),
+    [
+        ({"leds": {"mode": "off"}}, True),
+        ({"leds": {"mode": "unsupported"}}, True),
+        ({"leds": {"mode": "power"}}, True),
+        ({"leds": {"mode": "power", "colors": []}}, True),
+        ({"leds": {"mode": "power", "colors": {"power": None}}}, True),
+        ({"leds": {"mode": "switch", "colors": {"switch:0": None}}}, True),
+        ({"leds": {"mode": "switch", "colors": {"switch:0": {"on": None}}}}, True),
+        ({"leds": {"mode": "switch", "colors": {"switch:0": {"on": {}}}}}, None),
+        ({"leds": {"mode": "switch", "colors": {"switch:0": {"on": {}}}}}, 1),
+    ],
+)
+async def test_unselectable_normal_brightness_is_not_written(
+    config: dict, output: object
+) -> None:
+    """Reject disabled modes and unknown or malformed targets without a write."""
+    device = MagicMock()
+    device.connected = True
+    device.call_rpc = AsyncMock(side_effect=[config, {"output": output}])
+    client = ShellyLedClient(MagicMock(), "192.0.2.10", None, None)
+    client._device = device
+
+    with pytest.raises(ShellyUnsupportedDeviceError):
+        await client.async_set_led_brightness(50)
+
+    assert all(
+        item.args[0] != "PLUGS_UI.SetConfig" for item in device.call_rpc.await_args_list
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "method_name", ["async_set_led_brightness", "async_set_night_mode_brightness"]
+)
+@pytest.mark.parametrize(
     "brightness", [-1, 101, float("nan"), float("inf"), -float("inf"), True, "25", None]
 )
-async def test_invalid_night_mode_brightness_does_not_contact_device(
-    brightness: object,
+async def test_invalid_brightness_does_not_contact_device(
+    brightness: object, method_name: str
 ) -> None:
     """Reject invalid percentages before reading or writing device settings."""
     device = MagicMock()
@@ -193,7 +283,7 @@ async def test_invalid_night_mode_brightness_does_not_contact_device(
     client._device = device
 
     with pytest.raises(ValueError, match="brightness must be between 0 and 100"):
-        await client.async_set_night_mode_brightness(brightness)
+        await getattr(client, method_name)(brightness)
 
     device.call_rpc.assert_not_awaited()
 
