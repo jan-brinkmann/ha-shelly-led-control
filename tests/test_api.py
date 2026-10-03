@@ -5,14 +5,168 @@ from datetime import time
 from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
+from aioshelly.exceptions import RpcCallError
 from aioshelly.rpc_device import RpcUpdateType
 
 from custom_components.shelly_led_control.api import (
     ShellyLedClient,
     ShellyUnsupportedDeviceError,
     led_brightness_from_config,
+    switch_led_settings_from_config,
 )
 from custom_components.shelly_led_control.const import RPC_TIMEOUT
+
+
+@pytest.mark.parametrize("initial_mode", ["power", "switch", "off"])
+@pytest.mark.parametrize("mode", ["power", "switch"])
+async def test_mode_selection_preserves_full_configuration(
+    led_config, initial_mode, mode
+) -> None:
+    """Change only the mode, remember it, and avoid redundant SetConfig calls."""
+    led_config["leds"]["mode"] = initial_mode
+    led_config["controls"] = {"switch:0": {"in_mode": "detached"}}
+    original = deepcopy(led_config)
+    device = MagicMock(connected=True)
+    device.call_rpc = AsyncMock(side_effect=[led_config, {}])
+    client = ShellyLedClient(MagicMock(), "192.0.2.10", None, None)
+    client._device = device
+    await client.async_set_led_mode(mode)
+    expected = deepcopy(original)
+    expected["leds"]["mode"] = mode
+    expected_calls = [call("PLUGS_UI.GetConfig", timeout=RPC_TIMEOUT)]
+    if initial_mode != mode:
+        expected_calls.append(
+            call("PLUGS_UI.SetConfig", {"config": expected}, timeout=RPC_TIMEOUT)
+        )
+    assert device.call_rpc.await_args_list == expected_calls
+    assert client._last_enabled_mode == mode
+    assert led_config == original
+
+
+@pytest.mark.parametrize("mode", ["off", "unsupported", None, True, 1])
+async def test_invalid_mode_does_not_contact_device(mode) -> None:
+    """Reject non-enabled modes before reading or writing the Shelly."""
+    device = MagicMock(connected=True)
+    device.call_rpc = AsyncMock()
+    client = ShellyLedClient(MagicMock(), "192.0.2.10", None, None)
+    client._device = device
+    with pytest.raises(ValueError):
+        await client.async_set_led_mode(mode)
+    device.call_rpc.assert_not_awaited()
+
+
+async def test_rejected_mode_is_not_restored_later(led_config) -> None:
+    """Retain the previously observed mode when Shelly rejects a selection."""
+    device = MagicMock(connected=True)
+    device.call_rpc = AsyncMock(side_effect=[led_config, RpcCallError(500, "Rejected")])
+    client = ShellyLedClient(MagicMock(), "192.0.2.10", None, None)
+    client._device = device
+    with pytest.raises(RpcCallError):
+        await client.async_set_led_mode("switch")
+    assert client._last_enabled_mode == "power"
+
+
+@pytest.mark.parametrize("mode", ["power", "off", "unsupported"])
+async def test_color_write_rejects_fresh_non_switch_mode(led_config, mode) -> None:
+    """Prevent stale color services from overwriting a newly selected device mode."""
+    led_config["leds"]["mode"] = mode
+    device = MagicMock(connected=True)
+    device.call_rpc = AsyncMock(return_value=led_config)
+    client = ShellyLedClient(MagicMock(), "192.0.2.10", None, None)
+    client._device = device
+    with pytest.raises(ShellyUnsupportedDeviceError):
+        await client.async_set_switch_led_settings(True, rgb=(0, 0, 100))
+    device.call_rpc.assert_awaited_once_with("PLUGS_UI.GetConfig", timeout=RPC_TIMEOUT)
+
+
+@pytest.mark.parametrize(
+    ("output", "settings"),
+    [
+        (None, {"rgb": (0, 0, 100)}),
+        (1, {"rgb": (0, 0, 100)}),
+        (True, {"rgb": [0, 0, 100]}),
+        (True, {"rgb": (0, 100)}),
+        (True, {"rgb": (0, 0, 101)}),
+        (True, {"rgb": (-1, 0, 100)}),
+        (True, {"rgb": (True, 0, 100)}),
+        (True, {"rgb": (float("nan"), 0, 100)}),
+        (True, {"rgb": (float("inf"), 0, 100)}),
+        (True, {"rgb": ("0", 0, 100)}),
+        (True, {"brightness": -1}),
+        (True, {"brightness": 101}),
+        (True, {"brightness": True}),
+        (True, {"brightness": float("nan")}),
+        (True, {"brightness": float("inf")}),
+        (True, {"brightness": "50"}),
+    ],
+)
+async def test_invalid_color_settings_do_not_contact_device(output, settings) -> None:
+    """Reject malformed states, RGB values and percentages before RPC access."""
+    device = MagicMock(connected=True)
+    device.call_rpc = AsyncMock()
+    client = ShellyLedClient(MagicMock(), "192.0.2.10", None, None)
+    client._device = device
+    with pytest.raises(ValueError):
+        await client.async_set_switch_led_settings(output, **settings)
+    device.call_rpc.assert_not_awaited()
+
+
+@pytest.mark.parametrize("output", [True, False])
+async def test_color_change_preserves_zero_brightness(led_config, output) -> None:
+    """Change a disabled preset's RGB without implicitly enabling its brightness."""
+    led_config["leds"]["mode"] = "switch"
+    settings = led_config["leds"]["colors"]["switch:0"]["on" if output else "off"]
+    settings["brightness"] = 0
+    original = deepcopy(led_config)
+    device = MagicMock(connected=True)
+    device.call_rpc = AsyncMock(side_effect=[led_config, {}])
+    client = ShellyLedClient(MagicMock(), "192.0.2.10", None, None)
+    client._device = device
+    await client.async_set_switch_led_settings(output, rgb=(0, 0, 100))
+    expected = deepcopy(original)
+    expected["leds"]["colors"]["switch:0"]["on" if output else "off"]["rgb"] = [
+        0,
+        0,
+        100,
+    ]
+    assert device.call_rpc.await_args_list[-1] == call(
+        "PLUGS_UI.SetConfig", {"config": expected}, timeout=RPC_TIMEOUT
+    )
+    assert led_config == original
+
+
+@pytest.mark.parametrize(
+    "rgb",
+    [None, [], [0, 100], [0, 0, 101], [True, 0, 100], [float("nan"), 0, 100]],
+)
+def test_invalid_or_null_rgb_retains_valid_brightness(led_config, rgb) -> None:
+    """Keep brightness readable when a Shelly preset has unknown/invalid RGB."""
+    led_config["leds"]["colors"]["switch:0"]["on"]["rgb"] = rgb
+    settings = switch_led_settings_from_config(led_config, True)
+    assert settings.rgb is None
+    assert settings.brightness == 80
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        {},
+        {"leds": []},
+        {"leds": {"colors": []}},
+        {"leds": {"mode": "switch", "colors": {"switch:0": None}}},
+        {"leds": {"mode": "switch", "colors": {"switch:0": {"on": None}}}},
+    ],
+)
+async def test_missing_color_branch_is_unknown_and_not_written(config) -> None:
+    """Treat missing preset branches as unknown and reject writes to absent presets."""
+    assert switch_led_settings_from_config(config, True) is None
+    device = MagicMock(connected=True)
+    device.call_rpc = AsyncMock(return_value=config)
+    client = ShellyLedClient(MagicMock(), "192.0.2.10", None, None)
+    client._device = device
+    with pytest.raises(ShellyUnsupportedDeviceError):
+        await client.async_set_switch_led_settings(True, rgb=(0, 0, 100))
+    device.call_rpc.assert_awaited_once_with("PLUGS_UI.GetConfig", timeout=RPC_TIMEOUT)
 
 
 @pytest.mark.asyncio
@@ -388,3 +542,79 @@ async def test_relay_push_ignores_unchanged_output(hass) -> None:
     await hass.async_block_till_done()
     refresh.assert_awaited_once()
     availability.assert_not_called()
+
+
+@pytest.mark.parametrize("component", ["plugs_ui", "PLUGS_UI", "Plugs_UI"])
+async def test_led_config_event_accepts_component_casing(hass, component) -> None:
+    """Refresh LED settings for lowercase notifications and RPC-style casing."""
+    device = MagicMock(connected=True)
+    device.event = {"events": [{"component": component, "event": "config_changed"}]}
+    client = ShellyLedClient(hass, "192.0.2.10", None, None)
+    client._device = device
+    refresh = AsyncMock()
+    availability = MagicMock()
+    client.async_set_callbacks(refresh, availability)
+
+    client._async_handle_rpc_update(device, RpcUpdateType.EVENT)
+    await hass.async_block_till_done()
+
+    refresh.assert_awaited_once()
+    availability.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "event",
+    [
+        None,
+        [],
+        {},
+        {"events": None},
+        {"events": {}},
+        {"events": [None, "config_changed"]},
+        {"events": [{"component": None, "event": "config_changed"}]},
+        {"events": [{"component": "wifi", "event": "config_changed"}]},
+        {"events": [{"component": "plugs_ui", "event": "other"}]},
+    ],
+)
+async def test_unrelated_or_malformed_config_events_do_not_refresh(hass, event) -> None:
+    """Ignore malformed notifications and events unrelated to LED configuration."""
+    device = MagicMock(connected=True)
+    device.event = event
+    client = ShellyLedClient(hass, "192.0.2.10", None, None)
+    client._device = device
+    refresh = AsyncMock()
+    client.async_set_callbacks(refresh, MagicMock())
+
+    client._async_handle_rpc_update(device, RpcUpdateType.EVENT)
+    await hass.async_block_till_done()
+
+    refresh.assert_not_awaited()
+
+
+@pytest.mark.parametrize("revision", [0, 2, None, 1, True, -1, "2", 2.0])
+async def test_system_revision_refreshes_only_for_valid_changes(hass, revision) -> None:
+    """Refresh once for a changed/reset revision without relay or power changes."""
+    device = MagicMock(connected=True)
+    device.status = {
+        "sys": {"cfg_rev": revision},
+        "switch:0": {"output": True, "apower": 10},
+    }
+    client = ShellyLedClient(hass, "192.0.2.10", None, None)
+    client._device = device
+    client._last_switch_output = True
+    client._last_config_revision = 1
+    refresh = AsyncMock()
+    client.async_set_callbacks(refresh, MagicMock())
+
+    client._async_handle_rpc_update(device, RpcUpdateType.STATUS)
+    await hass.async_block_till_done()
+    device.status["switch:0"]["apower"] = 20
+    client._async_handle_rpc_update(device, RpcUpdateType.STATUS)
+    await hass.async_block_till_done()
+
+    if type(revision) is int and revision in {0, 2}:
+        refresh.assert_awaited_once()
+        assert client._last_config_revision == revision
+    else:
+        refresh.assert_not_awaited()
+        assert client._last_config_revision == 1

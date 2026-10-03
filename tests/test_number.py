@@ -117,7 +117,7 @@ async def test_setting_brightness_refreshes_number_and_light(
         if item.domain == NUMBER_DOMAIN
         and item.translation_key == "night_mode_brightness"
     )
-    light = next(item for item in entries if item.domain == "light")
+    light = next(item for item in entries if item.translation_key == "status_led")
 
     await hass.services.async_call(
         NUMBER_DOMAIN,
@@ -267,7 +267,7 @@ async def test_normal_brightness_entity_metadata(
 
 
 @pytest.mark.parametrize(
-    ("mode", "output"), [("power", None), ("switch", True), ("switch", False)]
+    ("mode", "output"), [("power", True), ("switch", True), ("switch", False)]
 )
 @pytest.mark.parametrize("brightness", [0, 50, 100])
 @pytest.mark.parametrize("night_active", [False, True])

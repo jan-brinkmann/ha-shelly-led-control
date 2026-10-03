@@ -90,14 +90,20 @@ async def test_brightness_sensor_metadata(
 @pytest.mark.parametrize(
     ("mode", "output", "clock", "enabled", "night_brightness", "expected"),
     [
-        ("power", None, time(12, 0), True, 25, "100"),
-        ("power", None, time(23, 0), True, 25, "25"),
+        ("power", True, time(12, 0), True, 25, "100"),
+        ("power", True, time(23, 0), True, 25, "25"),
         ("power", None, time(23, 0), True, 0, "0"),
-        ("power", None, time(23, 0), True, 100, "100"),
-        ("power", None, time(23, 0), False, 25, "100"),
+        ("power", True, time(23, 0), True, 100, "100"),
+        ("power", True, time(23, 0), False, 25, "100"),
         ("power", None, None, True, 25, "unknown"),
-        ("power", None, None, False, 25, "100"),
+        ("power", True, None, False, 25, "100"),
         ("power", None, time(23, 0), True, None, "unknown"),
+        ("power", False, time(12, 0), True, 25, "0"),
+        ("power", False, time(23, 0), True, 25, "0"),
+        ("power", False, None, True, 25, "0"),
+        ("power", None, time(12, 0), True, 25, "unknown"),
+        ("power", None, time(23, 0), True, 25, "unknown"),
+        ("power", None, None, False, 25, "unknown"),
         ("switch", True, time(12, 0), True, 25, "80"),
         ("switch", False, time(12, 0), True, 25, "40"),
         ("switch", None, time(12, 0), True, 25, "unknown"),
@@ -129,7 +135,7 @@ async def test_brightness_uses_current_mode_and_night_schedule(
     sensor = _sensor_entry(hass, entry)
 
     assert hass.states.get(sensor.entity_id).state == expected
-    if mode == "switch":
+    if mode in {"power", "switch"}:
         mock_client.async_get_switch_output.assert_awaited_once()
     else:
         mock_client.async_get_switch_output.assert_not_awaited()
@@ -160,7 +166,10 @@ async def test_missing_normal_brightness_keeps_other_entities_available(
 
     assert hass.states.get(sensor.entity_id).state == "unknown"
     for item in er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id):
-        assert hass.states.get(item.entity_id).state != "unavailable"
+        if item.translation_key in {"switch_on_color", "switch_off_color"}:
+            assert hass.states.get(item.entity_id).state == "unavailable"
+        else:
+            assert hass.states.get(item.entity_id).state != "unavailable"
 
 
 @pytest.mark.parametrize("night_brightness", [0, 25, 100])
