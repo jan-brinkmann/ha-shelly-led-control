@@ -4,6 +4,9 @@
   "after_dependencies": [
     "shelly"
   ],
+  "categories": [
+    "plugs_switches"
+  ],
   "codeowners": [
     "@jan-brinkmann"
   ],

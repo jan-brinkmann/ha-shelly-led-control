@@ -14,7 +14,6 @@ Mit **Shelly LED Control** steuerst du die Status-LED deines Shelly Plus Plug S 
 
 ![Shelly LED Control Banner](docs/banner.png)
 
-[![HACS](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz)
 [![Downloads](https://img.shields.io/github/downloads/jan-brinkmann/ha-shelly-led-control/total?label=downloads)](https://github.com/jan-brinkmann/ha-shelly-led-control/releases)
 [![Release](https://img.shields.io/github/v/release/jan-brinkmann/ha-shelly-led-control?label=release)](https://github.com/jan-brinkmann/ha-shelly-led-control/releases/latest)
 
@@ -22,18 +21,25 @@ Mit **Shelly LED Control** steuerst du die Status-LED deines Shelly Plus Plug S 
 
 Unterstützt wird der **Shelly Plus Plug S** (`SNPL-00112EU`). Andere Shelly Wall Plugs können funktionieren, werden aber nicht offiziell unterstützt. Dein Shelly muss von Home Assistant im lokalen Netzwerk erreichbar sein.
 
+<!-- ha-marketplace:exclude-start -->
+
 ## Installation
 
-### Mit HACS (empfohlen)
+### Über den Marketplace
 
-1. Installiere bei Bedarf [HACS](https://hacs.xyz).
-2. Öffne in **HACS** im Drei-Punkte-Menü **Benutzerdefinierte Repositories**. Füge `https://github.com/jan-brinkmann/ha-shelly-led-control` als **Integration** hinzu.
-3. Lade **Shelly LED Control** herunter und starte Home Assistant neu.
+[![Shelly LED Control im Home Assistant Marketplace öffnen](https://my.home-assistant.io/badges/marketplace_repository.svg)](https://my.home-assistant.io/redirect/marketplace_repository/?owner=jan-brinkmann&repository=ha-shelly-led-control&category=integration)
+
+1. Öffne das Repository über die Schaltfläche oben. Alternativ wähle **Einstellungen → Marketplace → Über Link hinzufügen** und gib `https://github.com/jan-brinkmann/ha-shelly-led-control` ein.
+2. Verbinde beim Hinzufügen dein GitHub-Konto, wenn der Marketplace dich dazu auffordert. Wähle **Integration**, falls der Typ abgefragt wird.
+3. Wähle auf der Seite **Shelly LED Control** die Option **Installieren**. Sobald die Integration bereit ist, öffnet Home Assistant die Einrichtung.
 
 ### Manuelle Installation
 
-1. Kopiere den Ordner `custom_components/shelly_led_control` in den Ordner `custom_components` deiner Home-Assistant-Konfiguration.
-2. Starte Home Assistant neu.
+1. Lade das Quellcode-Archiv der [neuesten Version](https://github.com/jan-brinkmann/ha-shelly-led-control/releases/latest) herunter und entpacke es.
+2. Kopiere den Ordner `custom_components/shelly_led_control` in den Ordner `custom_components` deiner Home-Assistant-Konfiguration.
+3. Starte Home Assistant neu.
+
+<!-- ha-marketplace:exclude-end -->
 
 ## Einrichtung
 
@@ -64,14 +70,12 @@ Der Nachtmodus richtet sich nach der lokalen Uhrzeit des Shelly und kann über M
 
 Wenn du auch die offizielle Shelly-Integration nutzt, zeigt Home Assistant einen separaten Geräteeintrag für die LED-Steuerung. Das ist normal.
 
-## Hilfe und Updates
+## Hilfe
 
 - **Keine Verbindung?** Prüfe, ob der Shelly online und seine Weboberfläche aus dem Netzwerk von Home Assistant erreichbar ist.
 - **Anmeldung fehlgeschlagen?** Prüfe das Gerätepasswort und nutze die erneute Anmeldung in Home Assistant, wenn sie angeboten wird.
 - **Nachtmodus-Status unbekannt?** Prüfe, ob die Uhrzeit des Shelly korrekt eingestellt ist.
 - **Einstellungen in der Shelly-Weboberfläche geändert?** Sie werden automatisch in Home Assistant übernommen; bei verzögerter Aktualisierung kann das bis zu fünf Minuten dauern.
-
-Aktualisiere über HACS und starte Home Assistant neu, wenn du dazu aufgefordert wirst. Bei manuellen Updates ersetze den Integrationsordner und starte Home Assistant neu. Deine bestehende Einrichtung bleibt erhalten.
 
 Technische Hintergründe findest du unter [Technische Entscheidungen](docs/architecture.md) (Englisch).
 
