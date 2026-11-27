@@ -2,7 +2,7 @@
 
 # Shelly LED Control
 
-**Shelly LED Control** lets you control the status LED of your Shelly Plus Plug S directly in Home Assistant. Adjust its colors, brightness and night mode locally on your home network, without a cloud connection. The integration works alongside Home Assistant's official Shelly integration.
+**Shelly LED Control** brings the status LED controls of compatible Shelly plugs to Home Assistant. Depending on the model, you can switch LED indication, adjust its color and brightness, or schedule night mode. The integration works locally alongside Home Assistant's Shelly and Z-Wave JS integrations.
 
 ## Features
 
@@ -19,7 +19,14 @@
 
 ## Supported devices
 
-The supported model is **Shelly Plus Plug S** (`SNPL-00112EU`). Other Shelly Wall Plugs may work, but are not officially supported. Your Shelly must be reachable from Home Assistant on the local network.
+| Shelly model | Supported LED controls |
+| --- | --- |
+| Plus Plug S (v1 and v2), Plus Plug UK, Plug S (MTR) Gen3, AZ Plug, Outdoor Plug S Gen3, Plug M Gen3, Plug US Gen4 | On/off, power and switch-state indications, RGB and brightness for each relay state, scheduled night mode and brightness/activity sensors. |
+| Plug PM Gen3 | On/off, power or custom-color indication, brightness, scheduled night mode and brightness/activity sensors. Its always-on outlet has one RGB and brightness preset. |
+| Plug, Plug E, Plug S, Plug US (Gen1) | Independent on/off controls for network or output indication, according to the settings exposed by the firmware. |
+| Wave Plug S, Wave Plug UK, Wave Plug US, Wave Outdoor Plug S, including LR variants | On/off and dimming when Z-Wave JS reports support for 0–100% on LED parameter 105. Wave Plug S requires firmware 11.04 or later, and Wave Plug UK requires 12.00 or later. |
+
+Plus Plug IT, Plus Plug US and Plug CN Gen3 have status LEDs. Shelly's public APIs for these models do not document a way to configure them.
 
 <!-- ha-marketplace:exclude-start -->
 
@@ -44,8 +51,8 @@ The supported model is **Shelly Plus Plug S** (`SNPL-00112EU`). Other Shelly Wal
 ## Setup
 
 1. Open **Settings → Devices & services → Add integration** and select **Shelly LED Control**.
-2. Enter your Shelly's hostname or IP address.
-3. Keep the default username `admin`. Enter the device password if login protection is enabled; otherwise leave it empty.
+2. For a Wi-Fi plug, enter its local hostname or IP address. Enter the device credentials if login protection is enabled. The default username is `admin`.
+3. For a Wave plug, first pair it with **Z-Wave JS**. Then choose **Wave plug (Z-Wave JS)** in Shelly LED Control and select the paired device.
 
 Repeat these steps for each Shelly you want to add. Devices are added manually.
 
@@ -55,16 +62,17 @@ Open the device under **Settings → Devices & services → Shelly LED Control**
 
 | Control | What it does |
 | --- | --- |
-| **Status LED** | Turns LED indication on or off. |
+| **Status LED** | Turns LED indication on or off. On Wave plugs, it also sets the LED intensity. |
+| **Network LED / Output LED** | Enables the corresponding LED indication on a Gen1 plug. The light state reflects the enable setting. |
 | **LED indication mode** | Selects **Power consumption** or **Switch state**. Selecting a mode enables LED indication. |
-| **LED color when relay is on / off** | Sets each state's color and brightness in **Switch state** mode. These controls do not switch the plug itself. |
+| **LED color when relay is on / off** or **Custom LED color** | Sets color and brightness in the corresponding indication mode. The Plug PM Gen3 offers one preset in **Custom color** mode. |
 | **Normal brightness** | Sets brightness outside night mode from 0 to 100%. In **Switch state** mode, it sets brightness for the plug's current on/off state. |
 | **Use night mode** | Enables the night-mode schedule. |
 | **Night mode start / end** and **Night mode brightness** | Set the schedule and brightness. Use 0% to turn the LED off during night mode. |
 | **Night mode active** | Shows whether the scheduled night mode is currently active. |
 | **Status LED brightness** | Shows the current brightness in percent, including night mode, and provides a history. |
 
-In **Power consumption** mode, Shelly chooses the color automatically; custom colors are available in **Switch state** mode. When the plug is off, power-consumption indication is off too.
+In **Power consumption** mode, Shelly chooses the color automatically. Power-consumption indication goes out when a supported plug's relay is off. The Plug PM Gen3 always supplies power to its outlet.
 
 Night mode follows the Shelly's local time and can run across midnight. **Status LED brightness** is calculated from the device settings and state.
 

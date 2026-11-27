@@ -2,7 +2,7 @@
 
 # Shelly LED Control
 
-Mit **Shelly LED Control** steuerst du die Status-LED deines Shelly Plus Plug S direkt in Home Assistant. Passe Farben, Helligkeit und Nachtmodus an – lokal im Heimnetz und ohne Cloud-Verbindung. Die Integration ergänzt die offizielle Shelly-Integration von Home Assistant.
+Mit **Shelly LED Control** steuerst du die Status-LEDs kompatibler Shelly-Steckdosen in Home Assistant. Je nach Modell kannst du die Anzeige schalten, Farbe und Helligkeit einstellen oder den Nachtmodus planen. Die Integration arbeitet lokal und ergänzt die Shelly- und Z-Wave-JS-Integrationen von Home Assistant.
 
 ## Funktionen
 
@@ -19,7 +19,14 @@ Mit **Shelly LED Control** steuerst du die Status-LED deines Shelly Plus Plug S 
 
 ## Unterstützte Geräte
 
-Unterstützt wird der **Shelly Plus Plug S** (`SNPL-00112EU`). Andere Shelly Wall Plugs können funktionieren, werden aber nicht offiziell unterstützt. Dein Shelly muss von Home Assistant im lokalen Netzwerk erreichbar sein.
+| Shelly-Modell | LED-Funktionen |
+| --- | --- |
+| Plus Plug S (v1 und v2), Plus Plug UK, Plug S (MTR) Gen3, AZ Plug, Outdoor Plug S Gen3, Plug M Gen3, Plug US Gen4 | Ein/Aus, Anzeige nach Leistungsaufnahme oder Schaltzustand, RGB und Helligkeit pro Relaiszustand, Nachtmodus mit Zeitplan, Helligkeits- und Nachtmodus-Sensoren. |
+| Plug PM Gen3 | Ein/Aus, Anzeige nach Leistungsaufnahme oder benutzerdefinierter Farbe, Helligkeit, Nachtmodus mit Zeitplan und die zugehörigen Sensoren. Die dauerhaft aktive Steckdose hat ein RGB- und Helligkeitsprofil. |
+| Plug, Plug E, Plug S, Plug US (Gen1) | Getrennte Ein/Aus-Steuerung der Netzwerk- und Schaltzustandsanzeige, je nach verfügbaren Firmware-Einstellungen. |
+| Wave Plug S, Wave Plug UK, Wave Plug US, Wave Outdoor Plug S, einschließlich LR-Varianten | Ein/Aus und Dimmen, wenn Z-Wave JS für LED-Parameter 105 den Bereich 0–100 % meldet. Der Wave Plug S benötigt mindestens Firmware 11.04, der Wave Plug UK mindestens 12.00. |
+
+Plus Plug IT, Plus Plug US und Plug CN Gen3 haben Status-LEDs. Die öffentlichen Shelly-APIs dokumentieren für diese Geräte keine LED-Steuerung.
 
 <!-- ha-marketplace:exclude-start -->
 
@@ -44,8 +51,8 @@ Unterstützt wird der **Shelly Plus Plug S** (`SNPL-00112EU`). Andere Shelly Wal
 ## Einrichtung
 
 1. Öffne **Einstellungen → Geräte & Dienste → Integration hinzufügen** und wähle **Shelly LED Control**.
-2. Gib den Hostnamen oder die IP-Adresse deines Shelly ein.
-3. Behalte den voreingestellten Benutzernamen `admin` bei. Gib das Gerätepasswort ein, wenn der Anmeldeschutz aktiviert ist; andernfalls lasse es leer.
+2. Gib für eine WLAN-Steckdose den lokalen Hostnamen oder die IP-Adresse ein. Wenn der Anmeldeschutz aktiv ist, gib die Zugangsdaten des Geräts ein. Der Standardbenutzername ist `admin`.
+3. Binde eine Wave-Steckdose zuerst in **Z-Wave JS** ein. Wähle dann in Shelly LED Control **Wave-Steckdose (Z-Wave JS)** und anschließend das gekoppelte Gerät.
 
 Wiederhole die Einrichtung für jeden weiteren Shelly. Geräte werden manuell hinzugefügt.
 
@@ -55,16 +62,17 @@ Wiederhole die Einrichtung für jeden weiteren Shelly. Geräte werden manuell hi
 
 | Bedienelement | Was du damit machst |
 | --- | --- |
-| **Status-LED** | LED-Anzeige ein- oder ausschalten. |
+| **Status-LED** | LED-Anzeige ein- oder ausschalten. Bei Wave-Steckdosen lässt sich hier auch die Helligkeit einstellen. |
+| **Netzwerk-LED / Schaltzustands-LED** | Die jeweilige Anzeige bei einer Gen1-Steckdose aktivieren oder deaktivieren. Der Zustand zeigt die Einstellung an. |
 | **LED-Anzeigemodus** | **Leistungsaufnahme** oder **Schaltzustand** wählen. Die Auswahl aktiviert die LED-Anzeige. |
-| **LED-Farbe bei Relais an / aus** | Farbe und Helligkeit für beide Zustände im Modus **Schaltzustand** einstellen. Die Steckdose selbst wird dabei nicht geschaltet. |
+| **LED-Farbe bei Relais an / aus** oder **Benutzerdefinierte LED-Farbe** | Farbe und Helligkeit im jeweiligen Anzeigemodus einstellen. Beim Plug PM Gen3 gibt es ein Profil im Modus **Benutzerdefinierte Farbe**. |
 | **Helligkeit Normalbetrieb** | Helligkeit außerhalb des Nachtmodus von 0 bis 100 % einstellen. Im Modus **Schaltzustand** gilt die Änderung für den aktuellen Ein/Aus-Zustand der Steckdose. |
 | **Nachtmodus nutzen** | Zeitplan für den Nachtmodus aktivieren. |
 | **Beginn / Ende Nachtmodus** und **Helligkeit Nachtmodus** | Zeitfenster und Helligkeit festlegen. Bei 0 % bleibt die LED während des Nachtmodus aus. |
 | **Nachtmodus aktiv** | Prüfen, ob der geplante Nachtmodus gerade aktiv ist. |
 | **Dimmwert Status-LED** | Aktuelle Helligkeit in Prozent einschließlich Nachtmodus und den Verlauf ansehen. |
 
-Im Modus **Leistungsaufnahme** wählt Shelly die Farbe automatisch; eigene Farben sind im Modus **Schaltzustand** verfügbar. Ist die Steckdose aus, bleibt auch die Leistungsanzeige aus.
+Im Modus **Leistungsaufnahme** wählt Shelly die Farbe automatisch. Bei Geräten mit Relais erlischt die Leistungsanzeige, wenn das Relais ausgeschaltet ist. Beim Plug PM Gen3 ist die Steckdose dauerhaft aktiv.
 
 Der Nachtmodus richtet sich nach der lokalen Uhrzeit des Shelly und kann über Mitternacht laufen. **Dimmwert Status-LED** wird aus den Geräteeinstellungen und dem Gerätezustand berechnet.
 

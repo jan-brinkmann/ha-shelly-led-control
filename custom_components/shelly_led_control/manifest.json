@@ -2,7 +2,8 @@
   "domain": "shelly_led_control",
   "name": "Shelly LED Control",
   "after_dependencies": [
-    "shelly"
+    "shelly",
+    "zwave_js"
   ],
   "categories": [
     "plugs_switches"

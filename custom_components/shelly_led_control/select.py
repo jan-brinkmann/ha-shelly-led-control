@@ -42,9 +42,11 @@ class ShellyLedModeSelect(CoordinatorEntity[ShellyLedCoordinator], SelectEntity)
     def __init__(
         self, entry: ShellyLedConfigEntry, coordinator: ShellyLedCoordinator
     ) -> None:
-        """Initialize stable entity and device registry metadata."""
+        """Initialize registry metadata and label the meter's custom color mode."""
         super().__init__(coordinator)
         device_info = entry.runtime_data.device_info
+        if not device_info.has_relay:
+            self._attr_translation_key = "led_indication_mode_pm"
         self._attr_unique_id = f"{entry.unique_id}_led_indication_mode"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.unique_id)},

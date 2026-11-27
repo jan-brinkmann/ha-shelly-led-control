@@ -8,11 +8,18 @@ from typing import Any
 import voluptuous as vol
 from aioshelly.exceptions import DeviceConnectionError, InvalidAuthError, RpcCallError
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
-from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME
-from homeassistant.helpers.device_registry import format_mac
+from homeassistant.const import CONF_DEVICE_ID, CONF_HOST, CONF_PASSWORD, CONF_USERNAME
+from homeassistant.helpers.device_registry import async_get, format_mac
+from homeassistant.helpers.selector import DeviceSelector, DeviceSelectorConfig
 
 from .api import ShellyDeviceInfo, ShellyLedClient, ShellyUnsupportedDeviceError
 from .const import DOMAIN
+from .wave import (
+    SET_CONFIG_PARAMETER,
+    ZWAVE_DOMAIN,
+    async_get_wave_led_parameter,
+    wave_led_supports_intensity_control,
+)
 
 
 async def async_validate_input(
@@ -23,8 +30,7 @@ async def async_validate_input(
 ) -> ShellyDeviceInfo:
     """Validate user input against a Shelly and return its stable metadata.
 
-    The temporary client is always disconnected before the config flow proceeds;
-    setup creates the persistent connection used by the entity.
+    The temporary client is always disconnected before the config flow proceeds.
     """
     client = ShellyLedClient(flow.hass, host, username, password)
     try:
@@ -41,6 +47,16 @@ class ShellyLedConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
+        """Offer Wave setup when Z-Wave JS is present, or open the Wi-Fi form."""
+        if user_input is None and self.hass.services.has_service(
+            ZWAVE_DOMAIN, SET_CONFIG_PARAMETER
+        ):
+            return self.async_show_menu(step_id="user", menu_options=["wifi", "wave"])
+        return await self.async_step_wifi(user_input)
+
+    async def async_step_wifi(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         """Handle manual configuration by hostname or IP address."""
         errors: dict[str, str] = {}
         if user_input is not None:
@@ -54,9 +70,7 @@ class ShellyLedConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors["base"] = "invalid_auth"
             except (DeviceConnectionError, OSError, ValueError):
                 errors["base"] = "cannot_connect"
-            except ShellyUnsupportedDeviceError:
-                errors["base"] = "unsupported_device"
-            except RpcCallError:
+            except (RpcCallError, ShellyUnsupportedDeviceError):
                 errors["base"] = "unsupported_device"
             else:
                 mac = format_mac(device_info.mac)
@@ -68,8 +82,45 @@ class ShellyLedConfigFlow(ConfigFlow, domain=DOMAIN):
                 )
 
         return self.async_show_form(
-            step_id="user",
+            step_id="wifi",
             data_schema=self._user_schema(user_input),
+            errors=errors,
+        )
+
+    async def async_step_wave(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Add a Z-Wave JS plug that supports switching and dimming its LED."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            device_id = user_input[CONF_DEVICE_ID]
+            device = async_get(self.hass).async_get(device_id)
+            parameter = (
+                async_get_wave_led_parameter(self.hass, device_id)
+                if device is not None
+                else None
+            )
+            if device is None or parameter is None:
+                errors["base"] = "unsupported_wave_device"
+            elif not wave_led_supports_intensity_control(parameter):
+                errors["base"] = "unsupported_wave_led_range"
+            else:
+                await self.async_set_unique_id(f"zwave_{device_id}")
+                self._abort_if_unique_id_configured()
+                return self.async_create_entry(
+                    title=device.name_by_user or device.name or "Shelly Wave",
+                    data={CONF_DEVICE_ID: device_id},
+                )
+
+        return self.async_show_form(
+            step_id="wave",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_DEVICE_ID): DeviceSelector(
+                        DeviceSelectorConfig(filter={"integration": ZWAVE_DOMAIN})
+                    ),
+                }
+            ),
             errors=errors,
         )
 
@@ -152,7 +203,7 @@ class ShellyLedConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> dict[str, str]:
         """Build config-entry data without persisting unused empty credentials."""
         data = {CONF_HOST: host, "mac": mac}
-        if username is not None and password is not None:
-            data[CONF_USERNAME] = username
+        if password is not None:
+            data[CONF_USERNAME] = username or "admin"
             data[CONF_PASSWORD] = password
         return data

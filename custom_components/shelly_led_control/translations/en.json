@@ -8,7 +8,9 @@
       "cannot_connect": "Unable to connect to the Shelly device.",
       "invalid_auth": "The Shelly username or password is invalid.",
       "unknown": "An unexpected error occurred.",
-      "unsupported_device": "This Shelly device does not provide PLUGS_UI LED control."
+      "unsupported_device": "This Shelly device does not expose compatible LED controls.",
+      "unsupported_wave_device": "Select a Shelly Wave plug that exposes LED intensity parameter 105 in Z-Wave JS.",
+      "unsupported_wave_led_range": "Z-Wave JS could not confirm that this plug supports LED intensity from 0 to 100%. Update the plug firmware if needed, then re-interview the device in Z-Wave JS."
     },
     "step": {
       "reauth_confirm": {
@@ -20,6 +22,20 @@
         "title": "Re-authenticate Shelly LED Control"
       },
       "user": {
+        "menu_options": {
+          "wifi": "Wi-Fi plug",
+          "wave": "Wave plug (Z-Wave JS)"
+        },
+        "title": "Add Shelly LED Control"
+      },
+      "wave": {
+        "data": {
+          "device_id": "Shelly Wave plug"
+        },
+        "description": "Select a Shelly Wave plug already set up in Z-Wave JS.",
+        "title": "Add Shelly Wave"
+      },
+      "wifi": {
         "data": {
           "host": "Host",
           "password": "Password",
@@ -30,7 +46,7 @@
           "password": "Leave empty when Shelly authentication is disabled.",
           "username": "Shelly uses admin by default."
         },
-        "description": "Connect directly to a Shelly Plus Plug S or another compatible Shelly Wall Plug.",
+        "description": "Connect directly to a compatible Shelly Wi-Fi plug.",
         "title": "Add Shelly LED Control"
       }
     }
@@ -42,6 +58,15 @@
       }
     },
     "light": {
+      "custom_led_color": {
+        "name": "Custom LED color"
+      },
+      "network_led": {
+        "name": "Network LED"
+      },
+      "output_led": {
+        "name": "Output LED"
+      },
       "status_led": {
         "name": "Status LED"
       },
@@ -66,6 +91,13 @@
         "state": {
           "power": "Power consumption",
           "switch": "Switch state"
+        }
+      },
+      "led_indication_mode_pm": {
+        "name": "LED indication mode",
+        "state": {
+          "power": "Power consumption",
+          "switch": "Custom color"
         }
       }
     },

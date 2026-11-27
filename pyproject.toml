@@ -1,7 +1,7 @@
 [project]
 name = "shelly-led-control"
 version = "1.0.0"
-description = "Home Assistant light entity for the Shelly Plus Plug S status LED"
+description = "Home Assistant controls for Shelly plug status LEDs"
 requires-python = ">=3.13"
 
 [tool.pytest.ini_options]

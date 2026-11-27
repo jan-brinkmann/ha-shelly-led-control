@@ -80,8 +80,9 @@ async def test_brightness_sensor_metadata(
     assert state.attributes["unit_of_measurement"] == PERCENTAGE
     assert state.attributes["state_class"] == SensorStateClass.MEASUREMENT
     assert "device_class" not in state.attributes
-    device = dr.async_get(hass).async_get(sensor.device_id)
-    assert device.config_entries == {entry.entry_id}
+    registry = dr.async_get(hass)
+    device = registry.async_get(sensor.device_id)
+    assert dr.async_entries_for_config_entry(registry, entry.entry_id) == [device]
     assert device.identifiers == {(DOMAIN, TEST_MAC)}
     assert device.connections == {(dr.CONNECTION_NETWORK_MAC, TEST_MAC)}
     assert not hass.services.has_service(SENSOR_DOMAIN, "set_value")

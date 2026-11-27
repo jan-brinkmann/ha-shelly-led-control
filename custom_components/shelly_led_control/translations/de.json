@@ -8,7 +8,9 @@
       "cannot_connect": "Verbindung mit dem Shelly-Gerät nicht möglich.",
       "invalid_auth": "Shelly-Benutzername oder -Passwort ist ungültig.",
       "unknown": "Ein unerwarteter Fehler ist aufgetreten.",
-      "unsupported_device": "Dieses Shelly-Gerät bietet keine PLUGS_UI-LED-Steuerung."
+      "unsupported_device": "Dieses Shelly-Gerät stellt keine kompatible LED-Steuerung bereit.",
+      "unsupported_wave_device": "Wähle eine Shelly Wave-Steckdose mit LED-Helligkeitsparameter 105 in Z-Wave JS.",
+      "unsupported_wave_led_range": "Z-Wave JS konnte für diese Steckdose den LED-Helligkeitsbereich von 0 bis 100 % nicht bestätigen. Aktualisiere bei Bedarf die Firmware der Steckdose und frage das Gerät anschließend in Z-Wave JS erneut ab."
     },
     "step": {
       "reauth_confirm": {
@@ -20,6 +22,20 @@
         "title": "Shelly LED Control erneut anmelden"
       },
       "user": {
+        "menu_options": {
+          "wifi": "WLAN-Steckdose",
+          "wave": "Wave-Steckdose (Z-Wave JS)"
+        },
+        "title": "Shelly LED Control hinzufügen"
+      },
+      "wave": {
+        "data": {
+          "device_id": "Shelly Wave-Steckdose"
+        },
+        "description": "Wähle eine bereits in Z-Wave JS eingerichtete Shelly Wave-Steckdose.",
+        "title": "Shelly Wave hinzufügen"
+      },
+      "wifi": {
         "data": {
           "host": "Host",
           "password": "Passwort",
@@ -30,7 +46,7 @@
           "password": "Leer lassen, wenn die Shelly-Authentifizierung deaktiviert ist.",
           "username": "Shelly verwendet standardmäßig admin."
         },
-        "description": "Direkte Verbindung mit einem Shelly Plus Plug S oder einem anderen kompatiblen Shelly Wall Plug.",
+        "description": "Verbinde dich direkt mit einer kompatiblen Shelly WLAN-Steckdose.",
         "title": "Shelly LED Control hinzufügen"
       }
     }
@@ -42,6 +58,15 @@
       }
     },
     "light": {
+      "custom_led_color": {
+        "name": "Benutzerdefinierte LED-Farbe"
+      },
+      "network_led": {
+        "name": "Netzwerk-LED"
+      },
+      "output_led": {
+        "name": "Schaltzustands-LED"
+      },
       "status_led": {
         "name": "Status-LED"
       },
@@ -66,6 +91,13 @@
         "state": {
           "power": "Leistungsaufnahme",
           "switch": "Schaltzustand"
+        }
+      },
+      "led_indication_mode_pm": {
+        "name": "LED-Anzeigemodus",
+        "state": {
+          "power": "Leistungsaufnahme",
+          "switch": "Benutzerdefinierte Farbe"
         }
       }
     },

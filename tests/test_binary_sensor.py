@@ -75,8 +75,9 @@ async def test_activity_sensor_and_switch_names(
     assert sensor.entity_category is None
     assert switch.entity_category is EntityCategory.CONFIG
     assert sensor.device_id == switch.device_id
-    device = dr.async_get(hass).async_get(sensor.device_id)
-    assert device.config_entries == {entry.entry_id}
+    registry = dr.async_get(hass)
+    device = registry.async_get(sensor.device_id)
+    assert dr.async_entries_for_config_entry(registry, entry.entry_id) == [device]
     assert device.identifiers == {(DOMAIN, TEST_MAC)}
     assert not hass.services.has_service(BINARY_SENSOR_DOMAIN, "turn_on")
     assert not hass.services.has_service(BINARY_SENSOR_DOMAIN, "turn_off")

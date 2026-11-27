@@ -2,6 +2,8 @@
 
 ## Local RPC and state
 
+Setup reads `/shelly` to identify Gen1 devices. For newer Wi-Fi plugs it detects the usable LED RPC namespace, `PLUGS_UI`, `PLUGUK_UI` or `PLUGPM_UI`, and uses it for reads, notifications and writes. The RPC paths below use `PLUGS_UI` as the Plus Plug S example. The Plug PM Gen3 has an always-on outlet. Its custom preset is `leds.colors["pm1:0"].on` and its brightness calculation requires no relay status request.
+
 The integration uses the asynchronous `aioshelly` library that also powers Home Assistant's official Shelly integration. It opens a local Gen2 RPC WebSocket, supports Shelly's SHA-256 digest authentication, and receives device notifications without changing the device's existing outbound-WebSocket settings.
 
 The manifest declares `shelly` in `after_dependencies` and has no direct Python requirements. Home Assistant therefore installs the library version required by its built-in Shelly integration before importing this integration, even when Shelly is not configured. This avoids installing a competing `aioshelly` version into Home Assistant's shared Python environment. The built-in integration remains optional; its device entries are not required for LED control. See [Home Assistant's manifest documentation](https://developers.home-assistant.io/docs/creating_integration_manifest/#after-dependencies).
@@ -26,10 +28,12 @@ The read-only **Status LED brightness** sensor reports the effective brightness 
 
 ## Identity and coexistence
 
-The config flow gets the MAC address from the Shelly API and formats it using Home Assistant's MAC helper. It is the config entry's unique ID and the light's stable unique-ID suffix; hostnames and IP addresses are not used as identity.
+The Wi-Fi config flow uses the normalized MAC address as the stable basis for config entry and entity identifiers. Wave entries use the Home Assistant device registry ID of the selected Z-Wave JS plug.
 
 The official Shelly integration also associates its device with the Shelly MAC address. However, current Home Assistant device-registry rules scope identifiers and network connections to the config entry that owns them. A physical device supported by more than one integration has one device entry per owning config entry; another integration cannot safely add an entity to the existing official Shelly device entry. This integration therefore creates its own device-registry entry with its own domain identifier and the same normalized network MAC. This is intentional, avoids registry collisions, and leaves the official Shelly integration untouched.
 
-## Scope deliberately deferred
+## Gen1 and Wave indicators
 
-The integration exposes one status on/off light, two switch-state RGB configuration lights, an indication-mode select, a night-mode use switch, read-only night-mode activity and effective brightness sensors, normal and night-mode brightness numbers, and start/end time entities. Custom power-to-color mappings, discovery and support for additional models are not implemented here.
+Gen1 plugs use local HTTP with Basic authentication if configured. Setup checks which boolean `led_status_disable` and `led_power_disable` settings the device reports and creates a light for each. Each light shows whether the corresponding indication is enabled. Writes use a single `/settings` query parameter and the coordinator polls for outside changes. [Shelly Gen1 settings](https://shelly-api-docs.shelly.cloud/gen1/#shelly-plug-plugs-settings)
+
+Wave setup selects a paired Shelly plug in Home Assistant's Z-Wave JS integration. The manifest lists `zwave_js` in `after_dependencies` so Home Assistant sets it up first when configured. Z-Wave JS is optional for Wi-Fi plugs. The light reads parameter 105 from the node's cached values and sets it with the `zwave_js.set_config_parameter` action. Zero disables indication, and an on command without a brightness restores the last positive value observed during runtime, defaulting to 100% when none is known. The light shows configured intensity while firmware controls the LED's colors and signaling. [Shelly Wave plug parameters](https://www.shelly.com/blogs/documentation/shelly-wave-plug-s-eu-lr), [Z-Wave JS configuration action](https://www.home-assistant.io/actions/zwave_js.set_config_parameter/)

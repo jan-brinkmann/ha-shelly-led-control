@@ -1,4 +1,4 @@
-"""Asynchronous Shelly Gen2 RPC access for status LED control."""
+"""Local Shelly RPC and Gen1 HTTP access for status LED control."""
 
 from __future__ import annotations
 
@@ -8,14 +8,17 @@ from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import time
+from http import HTTPStatus
 from typing import Any
 
+from aiohttp import ClientError, ClientTimeout
 from aioshelly.common import ConnectionOptions
 from aioshelly.exceptions import DeviceConnectionError, InvalidAuthError, RpcCallError
 from aioshelly.rpc_device import RpcDevice, RpcUpdateType
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.device_registry import format_mac
+from yarl import URL
 
 from .const import (
     DEFAULT_ENABLED_LED_MODE,
@@ -23,6 +26,10 @@ from .const import (
     LED_MODE_OFF,
     RPC_TIMEOUT,
 )
+
+LED_COMPONENTS = ("PLUGS_UI", "PLUGUK_UI", "PLUGPM_UI")
+LEGACY_PLUGS = {"SHPLG-1", "SHPLG2-1", "SHPLG-S", "SHPLG-U1"}
+LEGACY_LED_SETTINGS = ("led_status_disable", "led_power_disable")
 
 
 class ShellyUnsupportedDeviceError(Exception):
@@ -37,6 +44,13 @@ class ShellyDeviceInfo:
     model: str
     name: str
     firmware_version: str
+    has_relay: bool = True
+    legacy_leds: tuple[str, ...] = ()
+
+    @property
+    def color_component(self) -> str:
+        """Return the relay or power meter key used for the RGB preset."""
+        return "switch:0" if self.has_relay else "pm1:0"
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,33 +94,37 @@ class ShellyNightMode:
         return self.brightness == 0 and self.is_active_at(value)
 
 
-def led_mode_from_config(config: dict[str, Any]) -> str:
-    """Return the PLUGS_UI LED mode from a component configuration.
+def led_mode_from_config(config: object) -> str:
+    """Return the LED mode from a plug UI component configuration.
 
     Raises:
         ShellyUnsupportedDeviceError: If the response has no valid LED mode.
     """
-    leds = config.get("leds")
+    leds = config.get("leds") if isinstance(config, dict) else None
     if not isinstance(leds, dict) or not isinstance(mode := leds.get("mode"), str):
-        raise ShellyUnsupportedDeviceError("PLUGS_UI configuration has no LED mode")
+        raise ShellyUnsupportedDeviceError("Plug UI configuration has no LED mode")
     return mode
 
 
 def led_brightness_from_config(
-    config: dict[str, Any], switch_output: bool | None
+    config: dict[str, Any],
+    switch_output: bool | None,
+    color_component: str = "switch:0",
 ) -> float | None:
-    """Return normal LED brightness for the configured mode and relay output.
+    """Return normal LED brightness for the configured mode and output.
 
-    Brightness comes from ``colors.power`` or the selected ``colors.switch:0``
-    state. Missing, invalid or unsupported settings return None without
-    preventing other entities from updating. Night mode is applied separately.
+    Brightness comes from ``colors.power`` or the selected component's preset.
+    Missing, invalid or unsupported settings return None. Night mode is applied
+    separately.
     """
     leds = config.get("leds")
     if not isinstance(leds, dict):
         return None
     if leds.get("mode") == LED_MODE_OFF:
         return 0
-    settings = _led_brightness_settings_from_config(config, switch_output)
+    settings = _led_brightness_settings_from_config(
+        config, switch_output, color_component
+    )
     if settings is None:
         return None
     return _brightness_from_settings(settings)
@@ -125,14 +143,14 @@ def _brightness_from_settings(settings: dict[str, Any]) -> float | None:
 
 
 def switch_led_settings_from_config(
-    config: dict[str, Any], switch_output: bool
+    config: dict[str, Any], switch_output: bool, color_component: str = "switch:0"
 ) -> ShellySwitchLedSettings | None:
-    """Read one relay state's preset independently of LED mode and relay output.
+    """Read one output preset independently of LED mode and actual output.
 
     Missing branches return None. Invalid or null RGB and invalid brightness
     remain unknown individually without preventing other entities from loading.
     """
-    settings = _switch_led_settings_from_config(config, switch_output)
+    settings = _switch_led_settings_from_config(config, switch_output, color_component)
     if settings is None:
         return None
     rgb = settings.get("rgb")
@@ -152,16 +170,16 @@ def switch_led_settings_from_config(
 
 
 def _switch_led_settings_from_config(
-    config: dict[str, Any], switch_output: bool
+    config: dict[str, Any], switch_output: bool, color_component: str
 ) -> dict[str, Any] | None:
-    """Return one mutable relay-state branch, or None if it is missing/malformed."""
+    """Return one mutable output preset, or None if it is missing/malformed."""
     leds = config.get("leds")
     if not isinstance(leds, dict):
         return None
     colors = leds.get("colors")
     if not isinstance(colors, dict):
         return None
-    switch_colors = colors.get("switch:0")
+    switch_colors = colors.get(color_component)
     if not isinstance(switch_colors, dict):
         return None
     settings = switch_colors.get("on" if switch_output else "off")
@@ -169,7 +187,7 @@ def _switch_led_settings_from_config(
 
 
 def _led_brightness_settings_from_config(
-    config: dict[str, Any], switch_output: bool | None
+    config: dict[str, Any], switch_output: bool | None, color_component: str
 ) -> dict[str, Any] | None:
     """Return the current normal-brightness settings without copying or mutating.
 
@@ -185,7 +203,7 @@ def _led_brightness_settings_from_config(
     if leds.get("mode") == "power":
         settings = colors.get("power")
     elif leds.get("mode") == "switch" and isinstance(switch_output, bool):
-        return _switch_led_settings_from_config(config, switch_output)
+        return _switch_led_settings_from_config(config, switch_output, color_component)
     else:
         return None
     return settings if isinstance(settings, dict) else None
@@ -210,7 +228,7 @@ def _config_revision_from_status(status: object) -> int | None:
 
 
 def night_mode_from_config(config: dict[str, Any]) -> ShellyNightMode:
-    """Return the night-mode settings from a PLUGS_UI configuration.
+    """Return the night-mode settings from a plug UI configuration.
 
     Raises:
         ShellyUnsupportedDeviceError: If the response has no valid night mode.
@@ -219,7 +237,7 @@ def night_mode_from_config(config: dict[str, Any]) -> ShellyNightMode:
     if not isinstance(leds, dict) or not isinstance(
         night_mode := leds.get("night_mode"), dict
     ):
-        raise ShellyUnsupportedDeviceError("PLUGS_UI configuration has no night mode")
+        raise ShellyUnsupportedDeviceError("Plug UI configuration has no night mode")
 
     enabled = night_mode.get("enable")
     active_between = night_mode.get("active_between")
@@ -229,13 +247,13 @@ def night_mode_from_config(config: dict[str, Any]) -> ShellyNightMode:
         and len(active_between) == 2
         and all(isinstance(value, str) for value in active_between)
     ):
-        raise ShellyUnsupportedDeviceError("PLUGS_UI night mode has invalid settings")
+        raise ShellyUnsupportedDeviceError("Plug UI night mode has invalid settings")
     if brightness is not None and (
         isinstance(brightness, bool)
         or not isinstance(brightness, int | float)
         or not 0 <= brightness <= 100
     ):
-        raise ShellyUnsupportedDeviceError("PLUGS_UI night mode has invalid brightness")
+        raise ShellyUnsupportedDeviceError("Plug UI night mode has invalid brightness")
 
     return ShellyNightMode(
         enabled=enabled,
@@ -271,7 +289,7 @@ def _time_to_rpc(value: time) -> str:
 
 
 class ShellyLedClient:
-    """Maintain an authenticated local RPC connection to one Shelly device."""
+    """Access one Shelly through its local RPC or Gen1 HTTP interface."""
 
     def __init__(
         self,
@@ -283,10 +301,12 @@ class ShellyLedClient:
         """Initialize the client without opening a network connection."""
         self._hass = hass
         self._host = host
-        self._username = username or None
         self._password = password or None
+        self._username = (username or "admin") if self._password else None
         self._device: RpcDevice | None = None
         self._device_info: ShellyDeviceInfo | None = None
+        self._led_component = LED_COMPONENTS[0]
+        self._legacy_auth_header: str | None = None
         self._last_enabled_mode: str | None = None
         self._last_switch_output: bool | None = None
         self._last_config_revision: int | None = None
@@ -296,7 +316,9 @@ class ShellyLedClient:
 
     @property
     def connected(self) -> bool:
-        """Return whether the persistent RPC connection is currently available."""
+        """Return whether the RPC link is available or HTTP polling is configured."""
+        if self._device_info and self._device_info.legacy_leds:
+            return True
         return self._device is not None and self._device.connected
 
     @property
@@ -311,50 +333,52 @@ class ShellyLedClient:
         return self._device_info
 
     async def async_connect(self) -> ShellyDeviceInfo:
-        """Connect to the device and verify support for ``PLUGS_UI``.
+        """Identify the Shelly and find the LED controls advertised by its API.
 
         Returns:
-            Stable device metadata read from the Shelly RPC API.
+            Stable device metadata and LED capabilities.
 
         Raises:
-            DeviceConnectionError: If the local RPC connection cannot be opened.
+            DeviceConnectionError: If the local device cannot be reached.
             InvalidAuthError: If configured credentials are rejected.
-            ShellyUnsupportedDeviceError: If ``PLUGS_UI`` is unavailable.
+            ShellyUnsupportedDeviceError: If no compatible LED controls exist.
         """
+        description = await self._async_get_http_json("/shelly")
         options = ConnectionOptions(
             self._host,
             self._username,
             self._password,
             device_mac=None,
         )
+        if description.get("gen") in (None, 1) and "type" in description:
+            return await self._async_connect_legacy(description, options.auth_header)
+
         device = await RpcDevice.create(
             async_get_clientsession(self._hass), None, options
         )
         try:
             await device.initialize()
-            config = await device.call_rpc("PLUGS_UI.GetConfig", timeout=RPC_TIMEOUT)
-            mode = led_mode_from_config(config)
-        except (DeviceConnectionError, InvalidAuthError, RpcCallError):
+            component, mode = await self._async_find_led_component(device)
+            mac = device.shelly.get("mac")
+            if not isinstance(mac, str) or not mac:
+                raise ShellyUnsupportedDeviceError(
+                    "Shelly did not return a MAC address"
+                )
+            device_info = ShellyDeviceInfo(
+                mac=format_mac(mac),
+                model=device.model,
+                name=device.name,
+                firmware_version=device.version,
+                has_relay=component != "PLUGPM_UI",
+            )
+        except (Exception, asyncio.CancelledError):
             await device.shutdown()
             raise
-        except ShellyUnsupportedDeviceError:
-            await device.shutdown()
-            raise
-
-        mac = device.shelly.get("mac")
-        if not isinstance(mac, str) or not mac:
-            await device.shutdown()
-            raise ShellyUnsupportedDeviceError("Shelly did not return a MAC address")
 
         self._device = device
-        self._device_info = ShellyDeviceInfo(
-            mac=format_mac(mac),
-            model=device.model,
-            name=device.name,
-            firmware_version=device.version,
-        )
-        if mode != LED_MODE_OFF:
-            self._last_enabled_mode = mode
+        self._device_info = device_info
+        self._led_component = component
+        self._last_enabled_mode = mode if mode != LED_MODE_OFF else None
         self._last_switch_output = _switch_output_from_status(
             device.status.get("switch:0")
         )
@@ -362,13 +386,99 @@ class ShellyLedClient:
             device.status.get("sys")
         )
         device.subscribe_updates(self._async_handle_rpc_update)
+        return device_info
+
+    @staticmethod
+    async def _async_find_led_component(device: RpcDevice) -> tuple[str, str]:
+        """Return the usable plug UI RPC component and its current indication mode.
+
+        Prefer components advertised by Shelly.GetConfig. Probe the known RPC
+        names when the aggregate response omits the UI configuration.
+        """
+        advertised = {key.casefold() for key in device.config}
+        components = sorted(
+            LED_COMPONENTS, key=lambda key: key.lower() not in advertised
+        )
+        for component in components:
+            try:
+                config = await device.call_rpc(
+                    f"{component}.GetConfig", timeout=RPC_TIMEOUT
+                )
+            except RpcCallError as err:
+                if err.code not in (-32601, -105, 404):
+                    raise
+                continue
+            return component, led_mode_from_config(config)
+        raise ShellyUnsupportedDeviceError("Shelly has no compatible LED RPC component")
+
+    async def _async_connect_legacy(
+        self, description: dict[str, Any], auth_header: str | None
+    ) -> ShellyDeviceInfo:
+        """Discover which independent LED enable settings a Gen1 plug exposes."""
+        model = description.get("type")
+        mac = description.get("mac")
+        if not isinstance(model, str) or model not in LEGACY_PLUGS:
+            raise ShellyUnsupportedDeviceError("Shelly Gen1 device is not a wall plug")
+        if not isinstance(mac, str) or not mac:
+            raise ShellyUnsupportedDeviceError("Shelly did not return a MAC address")
+        self._legacy_auth_header = auth_header
+        settings = await self._async_get_http_json("/settings")
+        legacy_leds = tuple(
+            key for key in LEGACY_LED_SETTINGS if isinstance(settings.get(key), bool)
+        )
+        if not legacy_leds:
+            raise ShellyUnsupportedDeviceError("Shelly Gen1 plug has no LED settings")
+        self._device_info = ShellyDeviceInfo(
+            mac=format_mac(mac),
+            model=model,
+            name=settings.get("name")
+            or settings.get("device", {}).get("hostname")
+            or model,
+            firmware_version=settings.get("build_info", {}).get("build_version")
+            or description.get("fw", ""),
+            legacy_leds=legacy_leds,
+        )
         return self._device_info
 
+    async def _async_get_http_json(
+        self, path: str, params: dict[str, str] | None = None
+    ) -> dict[str, Any]:
+        """Read discovery or Gen1 settings, optionally changing a setting via GET.
+
+        Map authentication and connection failures to the client exceptions used
+        by the config flow and coordinator. Discovery never sends credentials.
+        """
+        headers = None
+        if path == "/settings" and self._legacy_auth_header:
+            headers = {"Authorization": self._legacy_auth_header}
+        try:
+            async with async_get_clientsession(self._hass).get(
+                URL.build(scheme="http", host=self._host, path=path),
+                params=params,
+                headers=headers,
+                timeout=ClientTimeout(total=RPC_TIMEOUT),
+                allow_redirects=False,
+                raise_for_status=False,
+            ) as response:
+                if response.status == HTTPStatus.UNAUTHORIZED:
+                    raise InvalidAuthError("Invalid Shelly credentials")
+                if response.status != HTTPStatus.OK:
+                    raise DeviceConnectionError(f"Shelly HTTP status {response.status}")
+                result = await response.json()
+        except (ClientError, TimeoutError, ValueError) as err:
+            raise DeviceConnectionError(f"Unable to read Shelly {path}") from err
+        if not isinstance(result, dict):
+            raise ShellyUnsupportedDeviceError(
+                f"Shelly {path} did not return an object"
+            )
+        return result
+
     async def async_disconnect(self) -> None:
-        """Close the persistent RPC connection and discard its device object."""
+        """Close the RPC link and stop exposing the active device metadata."""
         if self._device is not None:
             await self._device.shutdown()
             self._device = None
+        self._device_info = None
 
     def async_set_callbacks(
         self,
@@ -380,18 +490,34 @@ class ShellyLedClient:
         self._availability_callback = availability_callback
 
     async def async_get_led_config(self) -> dict[str, Any]:
-        """Fetch the current ``PLUGS_UI`` configuration from the device.
+        """Fetch the current plug UI configuration or Gen1 settings.
 
         Returns:
             The complete component configuration so callers can preserve fields
             that are outside the requested LED or night-mode change.
         """
+        if self._device_info and self._device_info.legacy_leds:
+            return await self._async_get_http_json("/settings")
         device = self._require_device()
-        config = await device.call_rpc("PLUGS_UI.GetConfig", timeout=RPC_TIMEOUT)
+        config = await device.call_rpc(
+            f"{self._led_component}.GetConfig", timeout=RPC_TIMEOUT
+        )
         mode = led_mode_from_config(config)
         if mode != LED_MODE_OFF:
             self._last_enabled_mode = mode
         return config
+
+    async def async_set_legacy_led_enabled(self, setting: str, enabled: bool) -> None:
+        """Change one advertised Gen1 indicator without modifying other settings."""
+        async with self._command_lock:
+            if (
+                self._device_info is None
+                or setting not in self._device_info.legacy_leds
+            ):
+                raise ShellyUnsupportedDeviceError("Shelly does not expose this LED")
+            await self._async_get_http_json(
+                "/settings", {setting: "false" if enabled else "true"}
+            )
 
     async def async_get_device_time(self) -> time | None:
         """Return the current local time reported by the Shelly.
@@ -418,12 +544,14 @@ class ShellyLedClient:
         return device_time
 
     async def async_get_switch_output(self) -> bool | None:
-        """Read relay output for power indication and switch-mode brightness.
+        """Read relay output or return True for a plug with an always-on outlet.
 
         Read fresh status during push refreshes and fallback polls. Missing or
         invalid output is unknown. Connection and RPC failures propagate to the
         coordinator so it can mark device data unavailable.
         """
+        if self._led_component == "PLUGPM_UI":
+            return True
         device = self._require_device()
         status = await device.call_rpc(
             "Switch.GetStatus", {"id": 0}, timeout=RPC_TIMEOUT
@@ -457,12 +585,7 @@ class ShellyLedClient:
             updated_leds["mode"] = target_mode
             updated_config["leds"] = updated_leds
 
-            device = self._require_device()
-            await device.call_rpc(
-                "PLUGS_UI.SetConfig",
-                {"config": updated_config},
-                timeout=RPC_TIMEOUT,
-            )
+            await self._async_write_led_config(updated_config)
             if target_mode != LED_MODE_OFF:
                 self._last_enabled_mode = target_mode
 
@@ -496,20 +619,18 @@ class ShellyLedClient:
                 await self.async_get_switch_output() if mode == "switch" else None
             )
             updated_config = deepcopy(config)
+            color_component = (
+                self._device_info.color_component if self._device_info else "switch:0"
+            )
             settings = _led_brightness_settings_from_config(
-                updated_config, switch_output
+                updated_config, switch_output, color_component
             )
             if settings is None:
                 raise ShellyUnsupportedDeviceError(
-                    "PLUGS_UI has no selectable normal brightness setting"
+                    "Plug UI has no selectable normal brightness setting"
                 )
             settings["brightness"] = value
-            device = self._require_device()
-            await device.call_rpc(
-                "PLUGS_UI.SetConfig",
-                {"config": updated_config},
-                timeout=RPC_TIMEOUT,
-            )
+            await self._async_write_led_config(updated_config)
 
     async def async_set_led_mode(self, mode: str) -> None:
         """Select power or switch indication and remember it for later enabling.
@@ -527,9 +648,7 @@ class ShellyLedClient:
                 return
             updated_config = deepcopy(config)
             updated_config["leds"]["mode"] = mode
-            await self._require_device().call_rpc(
-                "PLUGS_UI.SetConfig", {"config": updated_config}, timeout=RPC_TIMEOUT
-            )
+            await self._async_write_led_config(updated_config)
             self._last_enabled_mode = mode
 
     async def async_set_switch_led_settings(
@@ -539,7 +658,7 @@ class ShellyLedClient:
         rgb: tuple[float, float, float] | None = None,
         brightness: float | None = None,
     ) -> None:
-        """Update a relay state's color/brightness without switching the relay.
+        """Update an output-state preset without changing the outlet state.
 
         RGB and brightness use Shelly percentages from 0 to 100. Omitted fields
         are preserved. With neither field supplied, a zero brightness is set to
@@ -576,16 +695,21 @@ class ShellyLedClient:
         async with self._command_lock:
             config = await self.async_get_led_config()
             updated_config = deepcopy(config)
-            settings = _switch_led_settings_from_config(updated_config, switch_output)
+            color_component = (
+                self._device_info.color_component if self._device_info else "switch:0"
+            )
+            settings = _switch_led_settings_from_config(
+                updated_config, switch_output, color_component
+            )
             if led_mode_from_config(config) != "switch" or settings is None:
                 raise ShellyUnsupportedDeviceError(
-                    "PLUGS_UI has no selectable switch-mode color setting"
+                    "Plug UI has no selectable switch-mode color setting"
                 )
             if rgb is None and brightness is None:
                 current_brightness = _brightness_from_settings(settings)
                 if current_brightness is None:
                     raise ShellyUnsupportedDeviceError(
-                        "PLUGS_UI switch color has no valid brightness"
+                        "Plug UI switch color has no valid brightness"
                     )
                 if current_brightness > 0:
                     return
@@ -594,9 +718,7 @@ class ShellyLedClient:
                 settings["rgb"] = list(rgb)
             if brightness is not None:
                 settings["brightness"] = brightness
-            await self._require_device().call_rpc(
-                "PLUGS_UI.SetConfig", {"config": updated_config}, timeout=RPC_TIMEOUT
-            )
+            await self._async_write_led_config(updated_config)
 
     async def async_set_night_mode_enabled(self, enabled: bool) -> None:
         """Enable or disable night mode without changing its time window."""
@@ -662,12 +784,13 @@ class ShellyLedClient:
             updated_leds["night_mode"] = updated_night_mode
             updated_config["leds"] = updated_leds
 
-            device = self._require_device()
-            await device.call_rpc(
-                "PLUGS_UI.SetConfig",
-                {"config": updated_config},
-                timeout=RPC_TIMEOUT,
-            )
+            await self._async_write_led_config(updated_config)
+
+    async def _async_write_led_config(self, config: dict[str, Any]) -> None:
+        """Send updated settings to the detected plug UI RPC component."""
+        await self._require_device().call_rpc(
+            f"{self._led_component}.SetConfig", {"config": config}, timeout=RPC_TIMEOUT
+        )
 
     def _require_device(self) -> RpcDevice:
         """Return the initialized device or raise a connection error."""
@@ -706,15 +829,15 @@ class ShellyLedClient:
         else:
             refresh = (
                 update_type is RpcUpdateType.EVENT
-                and self._event_reports_plugs_ui_config_change()
+                and self._event_reports_led_config_change()
             )
         if refresh and self._refresh_callback is not None:
             self._hass.async_create_task(
                 self._refresh_callback(), "refresh Shelly LED configuration"
             )
 
-    def _event_reports_plugs_ui_config_change(self) -> bool:
-        """Recognize plugs_ui config events regardless of component-name casing.
+    def _event_reports_led_config_change(self) -> bool:
+        """Recognize the active plug UI's config event regardless of casing.
 
         Shelly notification identifiers use lowercase; retain compatibility with
         uppercase RPC-style names. Ignore malformed and unrelated event data.
@@ -728,7 +851,7 @@ class ShellyLedClient:
         return any(
             isinstance(item, dict)
             and isinstance(component := item.get("component"), str)
-            and component.casefold() == "plugs_ui"
+            and component.casefold() == self._led_component.lower()
             and item.get("event") == "config_changed"
             for item in events
         )
