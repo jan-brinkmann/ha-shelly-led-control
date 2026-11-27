@@ -81,8 +81,11 @@ async def test_brightness_entity_metadata(hass, config_entry, number_entry) -> N
     assert state.attributes["unit_of_measurement"] == "%"
     assert number_entry.unique_id == f"{TEST_MAC}_night_mode_brightness"
     assert number_entry.entity_category is EntityCategory.CONFIG
-    device = dr.async_get(hass).async_get(number_entry.device_id)
-    assert device.config_entries == {config_entry.entry_id}
+    registry = dr.async_get(hass)
+    device = registry.async_get(number_entry.device_id)
+    assert dr.async_entries_for_config_entry(registry, config_entry.entry_id) == [
+        device
+    ]
     assert device.identifiers == {(DOMAIN, TEST_MAC)}
     assert device.connections == {(dr.CONNECTION_NETWORK_MAC, TEST_MAC)}
 
@@ -260,8 +263,11 @@ async def test_normal_brightness_entity_metadata(
     assert number.original_name == name
     assert number.unique_id == f"{TEST_MAC}_normal_brightness"
     assert number.entity_category is EntityCategory.CONFIG
-    device = dr.async_get(hass).async_get(number.device_id)
-    assert device.config_entries == {config_entry.entry_id}
+    registry = dr.async_get(hass)
+    device = registry.async_get(number.device_id)
+    assert dr.async_entries_for_config_entry(registry, config_entry.entry_id) == [
+        device
+    ]
     assert device.identifiers == {(DOMAIN, TEST_MAC)}
     assert device.connections == {(dr.CONNECTION_NETWORK_MAC, TEST_MAC)}
 

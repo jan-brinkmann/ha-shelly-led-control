@@ -243,9 +243,10 @@ async def test_device_is_owned_by_this_config_entry(hass, mock_client) -> None:
     """Associate the status LED with its own integration-owned device entry."""
     entry = await _setup_entry(hass, mock_client)
     registry_entry = _registry_entry(hass, entry)
-    device = dr.async_get(hass).async_get(registry_entry.device_id)
+    registry = dr.async_get(hass)
+    device = registry.async_get(registry_entry.device_id)
 
-    assert device.config_entries == {entry.entry_id}
+    assert dr.async_entries_for_config_entry(registry, entry.entry_id) == [device]
     assert device.identifiers == {(DOMAIN, TEST_MAC)}
     assert device.connections == {(dr.CONNECTION_NETWORK_MAC, TEST_MAC)}
 

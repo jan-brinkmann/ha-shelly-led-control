@@ -6,13 +6,20 @@ from dataclasses import dataclass
 
 from aioshelly.exceptions import DeviceConnectionError, InvalidAuthError, RpcCallError
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME, Platform
+from homeassistant.const import (
+    CONF_DEVICE_ID,
+    CONF_HOST,
+    CONF_PASSWORD,
+    CONF_USERNAME,
+    Platform,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import (
     ConfigEntryAuthFailed,
     ConfigEntryError,
     ConfigEntryNotReady,
 )
+from homeassistant.helpers import device_registry as dr
 
 from .api import ShellyDeviceInfo, ShellyLedClient, ShellyUnsupportedDeviceError
 from .coordinator import ShellyLedCoordinator
@@ -43,9 +50,16 @@ type ShellyLedConfigEntry = ConfigEntry[RuntimeData]
 async def async_setup_entry(hass: HomeAssistant, entry: ShellyLedConfigEntry) -> bool:
     """Set up Shelly LED Control from a config entry.
 
-    The function establishes one local RPC connection, verifies that the
-    device exposes ``PLUGS_UI``, and starts the entity platforms.
+    Connect to the device and start the platforms supported by its LED API.
     """
+    if CONF_DEVICE_ID in entry.data:
+        if dr.async_get(hass).async_get(entry.data[CONF_DEVICE_ID]) is None:
+            raise ConfigEntryError(
+                "The selected Z-Wave JS device is no longer registered"
+            )
+        await hass.config_entries.async_forward_entry_setups(entry, (Platform.LIGHT,))
+        return True
+
     client = ShellyLedClient(
         hass,
         entry.data[CONF_HOST],
@@ -60,11 +74,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ShellyLedConfigEntry) ->
     except DeviceConnectionError as err:
         raise ConfigEntryNotReady("Unable to connect to the Shelly device") from err
     except ShellyUnsupportedDeviceError as err:
-        raise ConfigEntryError("The device does not provide PLUGS_UI") from err
+        raise ConfigEntryError(
+            "The device does not provide compatible LED controls"
+        ) from err
     except RpcCallError as err:
         raise ConfigEntryNotReady("Unable to initialize the Shelly RPC API") from err
 
-    coordinator = ShellyLedCoordinator(hass, entry, client)
+    coordinator = ShellyLedCoordinator(hass, entry, client, device_info)
     try:
         await coordinator.async_config_entry_first_refresh()
     except (ConfigEntryAuthFailed, ConfigEntryNotReady, ConfigEntryError):
@@ -72,13 +88,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ShellyLedConfigEntry) ->
         raise
 
     entry.runtime_data = RuntimeData(client, coordinator, device_info)
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    platforms = (Platform.LIGHT,) if device_info.legacy_leds else PLATFORMS
+    await hass.config_entries.async_forward_entry_setups(entry, platforms)
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ShellyLedConfigEntry) -> bool:
-    """Unload a Shelly LED Control config entry and its RPC connection."""
-    unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    """Unload a Shelly LED Control config entry and its connection."""
+    if CONF_DEVICE_ID in entry.data:
+        return await hass.config_entries.async_unload_platforms(
+            entry, (Platform.LIGHT,)
+        )
+
+    platforms = (
+        (Platform.LIGHT,) if entry.runtime_data.device_info.legacy_leds else PLATFORMS
+    )
+    unloaded = await hass.config_entries.async_unload_platforms(entry, platforms)
     if unloaded:
         entry.runtime_data.coordinator.async_cancel_scheduled_updates()
         await entry.runtime_data.client.async_disconnect()

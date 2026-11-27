@@ -15,6 +15,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util
 
 from .api import (
+    ShellyDeviceInfo,
     ShellyLedClient,
     ShellyNightMode,
     ShellySwitchLedSettings,
@@ -35,15 +36,16 @@ LOGGER = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class ShellyLedState:
-    """Represent LED mode, relay output, presets, brightness and night activity."""
+    """Represent RPC indication state or the independent Gen1 LED settings."""
 
-    mode: str
-    night_mode: ShellyNightMode
-    device_time: time | None
+    mode: str | None = None
+    night_mode: ShellyNightMode | None = None
+    device_time: time | None = None
     normal_brightness: float | None = None
     switch_on_settings: ShellySwitchLedSettings | None = None
     switch_off_settings: ShellySwitchLedSettings | None = None
     switch_output: bool | None = None
+    legacy_leds: dict[str, bool] | None = None
 
     @property
     def brightness(self) -> float | None:
@@ -62,7 +64,11 @@ class ShellyLedState:
             return 0
         if (active := self.night_mode_active) is None:
             return None
-        brightness = self.night_mode.brightness if active else self.normal_brightness
+        brightness = (
+            self.night_mode.brightness
+            if active and self.night_mode is not None
+            else self.normal_brightness
+        )
         if self.mode == "power" and self.switch_output is None and brightness != 0:
             return None
         return brightness
@@ -73,7 +79,7 @@ class ShellyLedState:
 
         Disabled night mode is always inactive, even before clock synchronization.
         """
-        if not self.night_mode.enabled:
+        if self.night_mode is None or not self.night_mode.enabled:
             return False
         if self.device_time is None:
             return None
@@ -86,7 +92,7 @@ class ShellyLedState:
         Unknown brightness retains the enabled indication state. Power mode with
         the relay off is always off, including during a night-mode window.
         """
-        return self.mode != LED_MODE_OFF and self.brightness != 0
+        return self.mode not in (None, LED_MODE_OFF) and self.brightness != 0
 
 
 class ShellyLedCoordinator(DataUpdateCoordinator[ShellyLedState]):
@@ -99,9 +105,11 @@ class ShellyLedCoordinator(DataUpdateCoordinator[ShellyLedState]):
         hass: HomeAssistant,
         entry: ShellyLedConfigEntry,
         client: ShellyLedClient,
+        device_info: ShellyDeviceInfo,
     ) -> None:
         """Initialize coordinator callbacks and a conservative fallback poll."""
         self.client = client
+        self._device_info = device_info
         self._cancel_night_mode_transition: CALLBACK_TYPE | None = None
         super().__init__(
             hass,
@@ -116,7 +124,7 @@ class ShellyLedCoordinator(DataUpdateCoordinator[ShellyLedState]):
         )
 
     async def _async_update_data(self) -> ShellyLedState:
-        """Fetch LED settings, local time and relay output in power/switch modes.
+        """Fetch the device's LED settings and any inputs for effective brightness.
 
         Raises:
             ConfigEntryAuthFailed: If stored Shelly credentials are no longer valid.
@@ -124,8 +132,19 @@ class ShellyLedCoordinator(DataUpdateCoordinator[ShellyLedState]):
         """
         try:
             config = await self.client.async_get_led_config()
+            if self._device_info.legacy_leds:
+                return ShellyLedState(
+                    legacy_leds={
+                        key: not value
+                        for key in self._device_info.legacy_leds
+                        if isinstance(value := config.get(key), bool)
+                    }
+                )
+
             device_time = await self.client.async_get_device_time()
             mode = led_mode_from_config(config)
+            night_mode = night_mode_from_config(config)
+            color_component = self._device_info.color_component
             switch_output = (
                 await self.client.async_get_switch_output()
                 if mode in ENABLED_LED_MODES
@@ -133,14 +152,20 @@ class ShellyLedCoordinator(DataUpdateCoordinator[ShellyLedState]):
             )
             state = ShellyLedState(
                 mode=mode,
-                night_mode=night_mode_from_config(config),
+                night_mode=night_mode,
                 device_time=device_time,
-                normal_brightness=led_brightness_from_config(config, switch_output),
-                switch_on_settings=switch_led_settings_from_config(config, True),
-                switch_off_settings=switch_led_settings_from_config(config, False),
+                normal_brightness=led_brightness_from_config(
+                    config, switch_output, color_component
+                ),
+                switch_on_settings=switch_led_settings_from_config(
+                    config, True, color_component
+                ),
+                switch_off_settings=switch_led_settings_from_config(
+                    config, False, color_component
+                ),
                 switch_output=switch_output,
             )
-            self._async_schedule_night_mode_transition(state.night_mode, device_time)
+            self._async_schedule_night_mode_transition(night_mode, device_time)
             return state
         except InvalidAuthError as err:
             raise ConfigEntryAuthFailed("Invalid Shelly credentials") from err
@@ -151,14 +176,19 @@ class ShellyLedCoordinator(DataUpdateCoordinator[ShellyLedState]):
         ) as err:
             raise UpdateFailed("Unable to update Shelly LED configuration") from err
 
-    async def async_set_enabled(self, enabled: bool) -> None:
+    async def async_set_enabled(
+        self, enabled: bool, *, setting: str | None = None
+    ) -> None:
         """Apply a requested LED indication state and refresh the coordinator.
 
         Raises:
             HomeAssistantError: If the Shelly cannot accept the requested change.
         """
         try:
-            await self.client.async_set_led_enabled(enabled)
+            if setting is None:
+                await self.client.async_set_led_enabled(enabled)
+            else:
+                await self.client.async_set_legacy_led_enabled(setting, enabled)
             await self.async_refresh()
         except InvalidAuthError as err:
             raise HomeAssistantError("Shelly credentials are no longer valid") from err
