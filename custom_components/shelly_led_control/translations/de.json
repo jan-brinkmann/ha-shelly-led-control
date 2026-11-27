@@ -9,7 +9,8 @@
       "invalid_auth": "Shelly-Benutzername oder -Passwort ist ungültig.",
       "unknown": "Ein unerwarteter Fehler ist aufgetreten.",
       "unsupported_device": "Dieses Shelly-Gerät stellt keine kompatible LED-Steuerung bereit.",
-      "unsupported_wave_device": "Wähle eine Shelly Wave-Steckdose mit LED-Helligkeitsparameter 105 in Z-Wave JS."
+      "unsupported_wave_device": "Wähle eine Shelly Wave-Steckdose mit LED-Helligkeitsparameter 105 in Z-Wave JS.",
+      "unsupported_wave_led_range": "Z-Wave JS konnte für diese Steckdose den LED-Helligkeitsbereich von 0 bis 100 % nicht bestätigen. Aktualisiere bei Bedarf die Firmware der Steckdose und frage das Gerät anschließend in Z-Wave JS erneut ab."
     },
     "step": {
       "reauth_confirm": {

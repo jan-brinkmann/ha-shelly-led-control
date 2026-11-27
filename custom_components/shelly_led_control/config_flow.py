@@ -14,7 +14,12 @@ from homeassistant.helpers.selector import DeviceSelector, DeviceSelectorConfig
 
 from .api import ShellyDeviceInfo, ShellyLedClient, ShellyUnsupportedDeviceError
 from .const import DOMAIN
-from .wave import SET_CONFIG_PARAMETER, ZWAVE_DOMAIN, async_get_wave_led_parameter
+from .wave import (
+    SET_CONFIG_PARAMETER,
+    ZWAVE_DOMAIN,
+    async_get_wave_led_parameter,
+    wave_led_supports_intensity_control,
+)
 
 
 async def async_validate_input(
@@ -85,16 +90,20 @@ class ShellyLedConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_wave(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Add a Z-Wave JS plug when it advertises the LED intensity parameter."""
+        """Add a Z-Wave JS plug that supports switching and dimming its LED."""
         errors: dict[str, str] = {}
         if user_input is not None:
             device_id = user_input[CONF_DEVICE_ID]
             device = async_get(self.hass).async_get(device_id)
-            if (
-                device is None
-                or async_get_wave_led_parameter(self.hass, device_id) is None
-            ):
+            parameter = (
+                async_get_wave_led_parameter(self.hass, device_id)
+                if device is not None
+                else None
+            )
+            if device is None or parameter is None:
                 errors["base"] = "unsupported_wave_device"
+            elif not wave_led_supports_intensity_control(parameter):
+                errors["base"] = "unsupported_wave_led_range"
             else:
                 await self.async_set_unique_id(f"zwave_{device_id}")
                 self._abort_if_unique_id_configured()

@@ -24,7 +24,7 @@ Mit **Shelly LED Control** steuerst du die Status-LEDs kompatibler Shelly-Steckd
 | Plus Plug S (v1 und v2), Plus Plug UK, Plug S (MTR) Gen3, AZ Plug, Outdoor Plug S Gen3, Plug M Gen3, Plug US Gen4 | Ein/Aus, Anzeige nach Leistungsaufnahme oder Schaltzustand, RGB und Helligkeit pro Relaiszustand, Nachtmodus mit Zeitplan, Helligkeits- und Nachtmodus-Sensoren. |
 | Plug PM Gen3 | Ein/Aus, Anzeige nach Leistungsaufnahme oder benutzerdefinierter Farbe, Helligkeit, Nachtmodus mit Zeitplan und die zugehörigen Sensoren. Die dauerhaft aktive Steckdose hat ein RGB- und Helligkeitsprofil. |
 | Plug, Plug E, Plug S, Plug US (Gen1) | Getrennte Ein/Aus-Steuerung der Netzwerk- und Schaltzustandsanzeige, je nach verfügbaren Firmware-Einstellungen. |
-| Wave Plug S, Wave Plug UK, Wave Plug US, Wave Outdoor Plug S, einschließlich LR-Varianten | Ein/Aus und Dimmen über Z-Wave JS, sofern die Firmware den Helligkeitsparameter 105 bereitstellt. |
+| Wave Plug S, Wave Plug UK, Wave Plug US, Wave Outdoor Plug S, einschließlich LR-Varianten | Ein/Aus und Dimmen, wenn Z-Wave JS für LED-Parameter 105 den Bereich 0–100 % meldet. Der Wave Plug S benötigt mindestens Firmware 11.04, der Wave Plug UK mindestens 12.00. |
 
 Plus Plug IT, Plus Plug US und Plug CN Gen3 haben Status-LEDs. Die öffentlichen Shelly-APIs dokumentieren für diese Geräte keine LED-Steuerung.
 

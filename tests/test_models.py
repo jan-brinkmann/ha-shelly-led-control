@@ -11,6 +11,7 @@ from homeassistant.const import CONF_DEVICE_ID, CONF_HOST, CONF_PASSWORD, CONF_U
 from homeassistant.core import ServiceCall
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.entity_component import async_update_entity
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.shelly_led_control.api import ShellyLedClient
@@ -168,16 +169,44 @@ async def test_gen1_indicators_use_independent_authenticated_settings(
     assert await hass.config_entries.async_unload(entry.entry_id)
 
 
-async def test_wave_setup_and_intensity(hass):
-    """Expose Wave intensity as a light and restore the prior value after off."""
+@pytest.fixture
+def wave_device(hass):
+    """Register a paired Shelly Wave plug in Home Assistant."""
     zwave_entry = MockConfigEntry(domain="zwave_js")
     zwave_entry.add_to_hass(hass)
-    device = dr.async_get(hass).async_get_or_create(
+    return dr.async_get(hass).async_get_or_create(
         config_entry_id=zwave_entry.entry_id,
         identifiers={("zwave_js", "1234-5")},
-        name="Shelly Wave Plug S",
+        name="Shelly Wave Plug",
     )
-    parameter = SimpleNamespace(value=35)
+
+
+def _wave_parameter(
+    product_id: int,
+    firmware: str | None,
+    minimum: int | None = 0,
+    maximum: int | None = 100,
+    allow_manual_entry: bool | None = None,
+) -> SimpleNamespace:
+    """Model a cached parameter 105 along with its Z-Wave JS node data."""
+    return SimpleNamespace(
+        value=35,
+        node=SimpleNamespace(product_id=product_id, firmware_version=firmware),
+        metadata=SimpleNamespace(
+            min=minimum, max=maximum, allow_manual_entry=allow_manual_entry
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    ("product_id", "firmware"),
+    [(0x0087, "11.04"), (0x0088, "11.01"), (0x0089, "12.0.0"), (0x0092, None)],
+    ids=["plug-s", "plug-us", "plug-uk", "outdoor-plug-s"],
+)
+async def test_wave_setup_and_intensity(hass, wave_device, product_id, firmware):
+    """Switch supported Wave LEDs and disable control if the range changes."""
+    device = wave_device
+    parameter = _wave_parameter(product_id, firmware)
     writes = []
 
     async def set_parameter(call: ServiceCall) -> None:
@@ -217,7 +246,55 @@ async def test_wave_setup_and_intensity(hass):
             await hass.services.async_call(
                 "light", service, {"entity_id": light}, blocking=True
             )
+        assert hass.states.get(light).attributes["brightness"] == 89
+
+        parameter.metadata.min = 30
+        await async_update_entity(hass, light)
+        assert hass.states.get(light).state == "unavailable"
 
     assert writes == [
         {"device_id": device.id, "parameter": 105, "value": value} for value in (0, 35)
     ]
+
+
+@pytest.mark.parametrize(
+    "parameter",
+    [
+        pytest.param(_wave_parameter(0x0087, "11.3.0"), id="plug-s-old-firmware"),
+        pytest.param(_wave_parameter(0x0089, "10.05"), id="plug-uk-old-firmware"),
+        pytest.param(_wave_parameter(0x0087, None), id="missing-firmware"),
+        pytest.param(_wave_parameter(0x0089, "unknown"), id="unrecognized-firmware"),
+        pytest.param(_wave_parameter(0x0089, "12.00", minimum=30), id="zero-excluded"),
+        pytest.param(
+            _wave_parameter(0x0088, "14.00", minimum=None), id="unknown-range"
+        ),
+        pytest.param(
+            _wave_parameter(0x0092, "13.00", maximum=99), id="limited-maximum"
+        ),
+        pytest.param(
+            _wave_parameter(0x0088, "14.00", allow_manual_entry=False),
+            id="fixed-values-only",
+        ),
+    ],
+)
+async def test_wave_setup_rejects_incompatible_led_control(
+    hass, wave_device, parameter
+):
+    """Show the upgrade hint when firmware or metadata excludes full LED control."""
+    set_parameter = AsyncMock()
+    hass.services.async_register("zwave_js", "set_config_parameter", set_parameter)
+    with patch(
+        "custom_components.shelly_led_control.config_flow.async_get_wave_led_parameter",
+        return_value=parameter,
+    ):
+        form = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": "wave"}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            form["flow_id"], {CONF_DEVICE_ID: wave_device.id}
+        )
+
+    assert result["type"] == "form"
+    assert result["errors"] == {"base": "unsupported_wave_led_range"}
+    assert not hass.config_entries.async_entries(DOMAIN)
+    set_parameter.assert_not_called()

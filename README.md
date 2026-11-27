@@ -24,7 +24,7 @@
 | Plus Plug S (v1 and v2), Plus Plug UK, Plug S (MTR) Gen3, AZ Plug, Outdoor Plug S Gen3, Plug M Gen3, Plug US Gen4 | On/off, power and switch-state indications, RGB and brightness for each relay state, scheduled night mode and brightness/activity sensors. |
 | Plug PM Gen3 | On/off, power or custom-color indication, brightness, scheduled night mode and brightness/activity sensors. Its always-on outlet has one RGB and brightness preset. |
 | Plug, Plug E, Plug S, Plug US (Gen1) | Independent on/off controls for network or output indication, according to the settings exposed by the firmware. |
-| Wave Plug S, Wave Plug UK, Wave Plug US, Wave Outdoor Plug S, including LR variants | On/off and dimming through Z-Wave JS on firmware that exposes LED intensity parameter 105. |
+| Wave Plug S, Wave Plug UK, Wave Plug US, Wave Outdoor Plug S, including LR variants | On/off and dimming when Z-Wave JS reports support for 0–100% on LED parameter 105. Wave Plug S requires firmware 11.04 or later, and Wave Plug UK requires 12.00 or later. |
 
 Plus Plug IT, Plus Plug US and Plug CN Gen3 have status LEDs. Shelly's public APIs for these models do not document a way to configure them.
 

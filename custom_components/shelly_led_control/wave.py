@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.light import ATTR_BRIGHTNESS, ColorMode, LightEntity
@@ -21,6 +22,11 @@ ZWAVE_DOMAIN = "zwave_js"
 SET_CONFIG_PARAMETER = "set_config_parameter"
 LED_INTENSITY_PARAMETER = 105
 WAVE_PLUG_PRODUCT_IDS = {0x0087, 0x0088, 0x0089, 0x0092}
+# Shelly's firmware changelog records when parameter 105 first accepted zero.
+WAVE_LED_MIN_FIRMWARE = {
+    0x0087: (11, 4),  # Wave Plug S
+    0x0089: (12, 0),  # Wave Plug UK
+}
 
 
 @callback
@@ -58,6 +64,29 @@ def async_get_wave_led_parameter(hass: HomeAssistant, device_id: str) -> Value |
         ),
         None,
     )
+
+
+def wave_led_supports_intensity_control(parameter: Value) -> bool:
+    """Check that the reported range and firmware support switching and dimming."""
+    metadata = parameter.metadata
+    if (
+        metadata.min is None
+        or metadata.min > 0
+        or metadata.max is None
+        or metadata.max < 100
+        or metadata.allow_manual_entry is False
+    ):
+        return False
+
+    node = parameter.node
+    minimum_firmware = WAVE_LED_MIN_FIRMWARE.get(node.product_id)
+    if minimum_firmware is None:
+        return True
+    # Z-Wave firmware versions include a major and minor, with an optional patch.
+    version = re.fullmatch(
+        r"([0-9]+)\.([0-9]+)(?:\.[0-9]+)?", node.firmware_version or ""
+    )
+    return version is not None and tuple(map(int, version.groups())) >= minimum_firmware
 
 
 class ShellyWaveLedLight(LightEntity):
@@ -101,9 +130,13 @@ class ShellyWaveLedLight(LightEntity):
         return None if self._intensity is None else round(self._intensity * 255 / 100)
 
     async def async_update(self) -> None:
-        """Read the latest reported parameter value from the Z-Wave JS cache."""
+        """Read the cached intensity when the plug supports the full LED range."""
         parameter = async_get_wave_led_parameter(self.hass, self._device_id)
-        value = parameter.value if parameter is not None else None
+        value = (
+            parameter.value
+            if parameter is not None and wave_led_supports_intensity_control(parameter)
+            else None
+        )
         self._intensity = value if type(value) is int and 0 <= value <= 100 else None
         if self._intensity:
             self._last_intensity = self._intensity
