@@ -14,7 +14,6 @@
 
 ![Shelly LED Control banner](docs/banner.png)
 
-[![HACS](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz)
 [![Downloads](https://img.shields.io/github/downloads/jan-brinkmann/ha-shelly-led-control/total?label=downloads)](https://github.com/jan-brinkmann/ha-shelly-led-control/releases)
 [![Release](https://img.shields.io/github/v/release/jan-brinkmann/ha-shelly-led-control?label=release)](https://github.com/jan-brinkmann/ha-shelly-led-control/releases/latest)
 
@@ -29,18 +28,25 @@
 
 Plus Plug IT, Plus Plug US and Plug CN Gen3 have status LEDs. Shelly's public APIs for these models do not document a way to configure them.
 
+<!-- ha-marketplace:exclude-start -->
+
 ## Installation
 
-### With HACS (recommended)
+### With Marketplace
 
-1. Install [HACS](https://hacs.xyz) if needed.
-2. Open **HACS → Custom repositories** in the three-dot menu. Add `https://github.com/jan-brinkmann/ha-shelly-led-control` as an **Integration**.
-3. Download **Shelly LED Control** and restart Home Assistant.
+[![Open Shelly LED Control in the Home Assistant Marketplace](https://my.home-assistant.io/badges/marketplace_repository.svg)](https://my.home-assistant.io/redirect/marketplace_repository/?owner=jan-brinkmann&repository=ha-shelly-led-control&category=integration)
+
+1. Use the button above to open the repository. You can also add it via **Settings → Marketplace → Add from link** using `https://github.com/jan-brinkmann/ha-shelly-led-control`.
+2. When adding the repository, connect your GitHub account if prompted. If asked for the repository type, choose **Integration**.
+3. Select **Install** on the **Shelly LED Control** page. Home Assistant opens the setup when the integration is ready.
 
 ### Manual installation
 
-1. Copy the `custom_components/shelly_led_control` folder into your Home Assistant configuration's `custom_components` folder.
-2. Restart Home Assistant.
+1. Download and extract the source archive from the [latest release](https://github.com/jan-brinkmann/ha-shelly-led-control/releases/latest).
+2. Copy the `custom_components/shelly_led_control` folder into your Home Assistant configuration's `custom_components` folder.
+3. Restart Home Assistant.
+
+<!-- ha-marketplace:exclude-end -->
 
 ## Setup
 
@@ -72,14 +78,12 @@ Night mode follows the Shelly's local time and can run across midnight. **Status
 
 If you also use the official Shelly integration, Home Assistant shows a separate device entry for the LED controls. This is normal.
 
-## Help and updates
+## Help
 
 - **Cannot connect?** Check that the Shelly is online and its web interface is reachable from the Home Assistant network.
 - **Login failed?** Check the device password and use Home Assistant's reauthentication prompt if it appears.
 - **Night-mode status is unknown?** Check that the Shelly's clock is set correctly.
 - **Changed settings in the Shelly web interface?** They update automatically in Home Assistant; allow up to five minutes if an update is delayed.
-
-Update through HACS and restart Home Assistant when requested. For manual updates, replace the integration folder and restart Home Assistant. Your existing configuration is kept.
 
 For implementation details, see [Technical decisions](docs/architecture.md).
 
